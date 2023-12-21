@@ -1,40 +1,48 @@
 import torch
 
-def matrix_sqrt(tensor):
-    r""" Computes the square root of a matrix.
-
-    Given a batch of Hermitian positive semi-definite matrices
-    :math:`\mathbf{A}`, returns matrices :math:`\mathbf{B}`,
-    such that :math:`\mathbf{B}\mathbf{B}^H = \mathbf{A}`.
-
-    The two inner dimensions are assumed to correspond to the matrix rows
-    and columns, respectively.
+def matrix_sqrt(A, numIters=100):
+    """ Newton-Schulz iterations method to get matrix square root.
+    Page 231, Eq 2.6b
+    http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.6.8799&rep=rep1&type=pdf
 
     Args:
-        tensor ([..., M, M]) : A tensor of rank greater than or equal
-            to two.
+        A: the symmetric PSD matrix whose matrix square root be computed
+        numIters: Maximum number of iterations.
 
     Returns:
-        A tensor of the same shape and type as ``tensor`` containing
-        the matrix square root of its last two dimensions.
+        A^0.5
 
-    Note:
-        If you want to use this function in Graph mode with XLA, i.e., within
-        a function that is decorated with ``@tf.function(jit_compile=True)``,
-        you must set ``sionna.config.xla_compat=true``.
-        See :py:attr:`~sionna.config.xla_compat`.
+    Tensorflow Source:
+        https://github.com/tensorflow/tensorflow/blob/df3a3375941b9e920667acfe72fb4c33a8f45503/tensorflow/contrib/opt/python/training/matrix_functions.py#L26C1-L73C42
+    Torch Source:
+        https://github.com/msubhransu/matrix-sqrt/blob/cc2289a3ed7042b8dbacd53ce8a34da1f814ed2f/matrix_sqrt.py#L74
     """
-    s, u = torch.linalg.eigh(tensor)
 
-    # Compute sqrt of eigenvalues
-    s = torch.abs(s)
-    s = torch.sqrt(s)
-    s = s.type_as(u)
+    normA = torch.linalg.matrix_norm(A, keepdim=True)
+    err = normA + 1.0
+    I = torch.eye(*A.shape[-2:], dtype=A.dtype)
+    Z = torch.eye(*A.shape[-2:], dtype=A.dtype).expand_as(A)
+    Y = A / normA
+    for i in range(numIters):
+        T = 0.5*(3.0*I - Z@Y)
+        Y_new = Y@T
+        Z_new = T@Z
 
-    # Matrix multiplication
-    s = torch.unsqueeze(s, -2)
-    # u = u.adjoint()
-    return torch.matmul(u*s, u.conj().swapaxes(-2,-1))
+        # This method require that we check for divergence every step.
+        # Compute the error in approximation.
+        mat_a_approx = (Y_new @ Y_new) * normA
+        residual = A - mat_a_approx
+        current_err = torch.linalg.matrix_norm(residual, keepdim=True) / normA
+        if torch.any(current_err > err):
+            break
+
+        err = current_err
+        Y = Y_new
+        Z = Z_new
+
+    sA = Y*torch.sqrt(normA)
+    
+    return sA
 
 class LSP:
     r"""
@@ -109,25 +117,6 @@ class LSPGenerator:
         self._scenario = scenario
         self.rng = rng
 
-    def sample_pathloss(self):
-        """
-        Generate pathlosses [dB] for each BS-UT link.
-
-        Input
-        ------
-        None
-
-        Output
-        -------
-            A tensor with shape [batch size, number of BSs, number of UTs] of
-                pathloss [dB] for each BS-UT link
-        """
-
-        # Pre-computed basic pathloss
-        pl = self._scenario.basic_pathloss
-
-        return torch.from_numpy(pl)
-
     def __call__(self):
 
         # LSPs are assumed to follow a log-normal distribution.
@@ -148,13 +137,11 @@ class LSPGenerator:
         s = torch.unsqueeze(torch.permute(s, [0, 1, 3, 2]), axis=3)
         b = self._spatial_lsp_correlation_matrix_sqrt
         b = torch.moveaxis(b, -1, -2) # Transpose last 2
-        s = torch.matmul(s, b)
+        s = s @ b
         s = torch.permute(torch.squeeze(s, axis=3), [0, 1, 3, 2])
 
         ## Scaling and transposing LSPs to the right mean and variance
-        lsp_log_mean = torch.from_numpy(self._scenario.lsp_log_mean).type(self._scenario._dtype_real)
-        lsp_log_std = torch.from_numpy(self._scenario.lsp_log_std).type(self._scenario._dtype_real)
-        lsp_log = lsp_log_std*s + lsp_log_mean
+        lsp_log = self._scenario.lsp_log_std*s + self._scenario.lsp_log_mean
 
         ## Mapping to linear domain
         lsp = torch.pow(10.0, lsp_log)
@@ -330,7 +317,7 @@ class LSPGenerator:
         # Pairs of UTs that are correlated are those that share the same state
         # (LoS or NLoS).
         # LoS
-        los_ut = self._scenario.los
+        los_ut = self._scenario.is_los
         los_pair_bool = torch.logical_and(torch.unsqueeze(los_ut, axis=3),
                                        torch.unsqueeze(los_ut, axis=2))
         # NLoS

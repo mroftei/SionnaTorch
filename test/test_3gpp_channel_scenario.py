@@ -6,8 +6,7 @@
 import unittest
 import numpy as np
 from channel_test_utils import *
-from sionna_torch.RMAScenario import RMaScenario
-from sionna_torch.UMAScenario import UMaScenario
+from sionna_torch.SionnaScenario import SionnaScenario
 
 class TestScenario(unittest.TestCase):
     r"""Test the distance calculations and function that get the parameters
@@ -52,35 +51,32 @@ class TestScenario(unittest.TestCase):
 
         # The following quantities have no impact on LSP
         # However,these are needed to instantiate the model
-        ut_orientations = np.zeros([batch_size, nb_ut])
-        bs_orientations = np.zeros([batch_size, nb_ut])
-        ut_velocities = np.zeros([batch_size, nb_ut])
-
-        TestScenario.scenario = RMaScenario(fc, "uplink", rng=rng)
+        # ut_velocities = np.zeros([batch_size, nb_ut])
+        TestScenario.is_urban = np.zeros([batch_size, 1, nb_ut], dtype=bool)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,2000),
                                      (100,2000), (h_ut, h_ut))
         bs_loc = generate_random_loc(batch_size, nb_bs, (0,100),
                                             (0,100), (h_bs, h_bs))
 
-        TestScenario.scenario.set_topology(ut_loc, bs_loc, ut_orientations,
-                                bs_orientations, ut_velocities)
+        TestScenario.scenario = SionnaScenario(ut_loc, bs_loc, TestScenario.is_urban, 
+            f_c=fc, seed=seed)
 
     def test_dist(self):
         """Test calculation of distances (total, in, and out)"""
         d_3d = self.scenario.distance_3d.numpy()
         d_2d = self.scenario.distance_2d.numpy()
         # Checking total 3D distances
-        ut_loc = self.scenario.ut_loc.numpy()
-        bs_loc = self.scenario.bs_loc.numpy()
+        ut_loc = self.scenario.ut_xy.numpy()
+        bs_loc = self.scenario.bs_xy.numpy()
         bs_loc = np.expand_dims(bs_loc, axis=2)
         ut_loc = np.expand_dims(ut_loc, axis=1)
         d_3d_ref = np.sqrt(np.sum(np.square(ut_loc-bs_loc), axis=3))
         max_err = np.max(np.abs(d_3d - d_3d_ref)/d_3d_ref)
         self.assertLessEqual(max_err, TestScenario.MAX_ERR)
         # Checking total 2D distances
-        ut_loc = self.scenario.ut_loc.numpy()
-        bs_loc = self.scenario.bs_loc.numpy()
+        ut_loc = self.scenario.ut_xy.numpy()
+        bs_loc = self.scenario.bs_xy.numpy()
         bs_loc = np.expand_dims(bs_loc, axis=2)
         ut_loc = np.expand_dims(ut_loc, axis=1)
         d_2d_ref = np.sqrt(np.sum(np.square(ut_loc[:,:,:,:2]-bs_loc[:,:,:,:2]), axis=3))
@@ -92,11 +88,11 @@ class TestScenario(unittest.TestCase):
         # Test if muDSc is correctly extracted from the file (RMa)
         param_tensor_ref = np.zeros([TestScenario.BATCH_SIZE,
                                         TestScenario.NB_BS, TestScenario.NB_UT])
-        los_index = np.where(self.scenario.los.numpy())
-        nlos_index = np.where(np.logical_not(self.scenario.los.numpy()))
+        los_index = np.where(self.scenario.is_los.numpy())
+        nlos_index = np.where(np.logical_not(self.scenario.is_los.numpy()))
         param_tensor_ref[los_index] = -7.49
         param_tensor_ref[nlos_index] = -7.43
         #
-        param_tensor = self.scenario.get_param('muDSc').numpy()
+        param_tensor = TestScenario.scenario.get_param('muDSc').numpy()
         max_err = np.max(np.abs(param_tensor-param_tensor_ref))
         self.assertLessEqual(max_err, 1e-6)

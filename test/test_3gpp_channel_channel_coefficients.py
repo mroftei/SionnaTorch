@@ -6,16 +6,10 @@
 import unittest
 import numpy as np
 from channel_test_utils import *
-from sionna_torch.RMAScenario import RMaScenario
-from sionna_torch.UMAScenario import UMaScenario
 from sionna_torch.LSPGenerator import LSPGenerator
 from sionna_torch.RaysGenerator import RaysGenerator
 from sionna_torch.ChannelCoefficients import ChannelCoefficientsGenerator
-from sionna_torch.ChannelModel3GPP import Topology
-
-# import faulthandler
-
-# faulthandler.enable()
+from sionna_torch.SionnaScenario import SionnaScenario
 
 
 class TestChannelCoefficientsGenerator(unittest.TestCase):
@@ -71,11 +65,10 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         h_ut = TestChannelCoefficientsGenerator.H_UT
         h_bs = TestChannelCoefficientsGenerator.H_BS
 
-        rx_orientations = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
-        tx_orientations = torch.empty((batch_size, nb_bs, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
-        ut_velocities = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 5.0)
-
-        scenario = RMaScenario(fc, "downlink", rng=rng, dtype=torch.complex128)
+        # rx_orientations = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
+        # tx_orientations = torch.empty((batch_size, nb_bs, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
+        # ut_velocities = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 5.0)
+        is_urban = np.zeros([batch_size, 1, nb_ut], dtype=bool)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,2000),
                                      (100,2000), (h_ut, h_ut), dtype=torch.float64)
@@ -83,22 +76,8 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                             (0,100), (h_bs, h_bs),
                                             dtype=torch.float64)
 
-        scenario.set_topology(ut_loc, bs_loc, rx_orientations.numpy(),
-                                tx_orientations.numpy(), ut_velocities.numpy())
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, f_c=fc, seed=seed, dtype=torch.complex128)
         TestChannelCoefficientsGenerator.scenario = scenario
-
-        topology = Topology(
-            velocities=ut_velocities,
-            moving_end='rx',
-            los_aoa=scenario.los_aoa,
-            los_aod=scenario.los_aod,
-            los_zoa=scenario.los_zoa,
-            los_zod=scenario.los_zod,
-            los=scenario.los,
-            distance_3d=scenario.distance_3d,
-            tx_orientations=tx_orientations,
-            rx_orientations=rx_orientations)
-        TestChannelCoefficientsGenerator.topology = topology
 
         lsp_sampler = LSPGenerator(scenario, rng=rng)
         ray_sampler = RaysGenerator(scenario, rng=rng)
@@ -112,8 +91,25 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         num_time_samples = TestChannelCoefficientsGenerator.NUM_SAMPLES
         sampling_frequency = TestChannelCoefficientsGenerator.SAMPLING_FREQUENCY
         c_ds = scenario.get_param("cDS")*1e-9
+        if scenario.direction == "uplink":
+            aoa = rays.aoa
+            zoa = rays.zoa
+            aod = rays.aod
+            zod = rays.zod
+            rays.aod = torch.permute(aoa, [0, 2, 1, 3, 4])
+            rays.zod = torch.permute(zoa, [0, 2, 1, 3, 4])
+            rays.aoa = torch.permute(aod, [0, 2, 1, 3, 4])
+            rays.zoa = torch.permute(zod, [0, 2, 1, 3, 4])
+            rays.powers = torch.permute(rays.powers, [0, 2, 1, 3])
+            rays.delays = torch.permute(rays.delays, [0, 2, 1, 3])
+            rays.xpr = torch.permute(rays.xpr, [0, 2, 1, 3, 4])
+            c_ds = torch.permute(c_ds, [0, 2, 1])
+            # Concerning LSPs, only these two are used.
+            # We do not transpose the others to reduce complexity
+            lsp.k_factor = torch.permute(lsp.k_factor, [0, 2, 1])
+            lsp.sf = torch.permute(lsp.sf, [0, 2, 1])
         _, _, phi, sample_times = ccg(num_time_samples,
-            sampling_frequency, lsp.k_factor, rays, topology, c_ds,
+            sampling_frequency, lsp.k_factor, rays, scenario, c_ds,
             debug=True)
         TestChannelCoefficientsGenerator.phi = phi
         TestChannelCoefficientsGenerator.sample_times = sample_times
@@ -316,10 +312,13 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_get_tx_antenna_positions_ref(self, topology):
+    def step_11_get_tx_antenna_positions_ref(self, scenario):
         """Reference implementation: Positions of the TX array elements"""
 
-        tx_orientations = topology.tx_orientations.numpy()
+        if scenario.direction == "uplink":
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real).numpy() # [batch size, number of UTs, 3]
+        else:
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real).numpy() # [batch size, number of BSs, 3]
 
         # Antenna locations in LCS and reshape for broadcasting
         ant_loc_lcs = np.array([[0.,0.,0.]])
@@ -336,17 +335,20 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
     def test_step_11_get_tx_antenna_positions(self):
         """Test 3GPP channel coefficient calculation: Positions of the TX array
         elements"""
-        tx_ant_pos_ref= self.step_11_get_tx_antenna_positions_ref(self.topology)
-        tx_ant_pos = self.ccg._step_11_get_tx_antenna_positions(self.topology).numpy()
+        tx_ant_pos_ref= self.step_11_get_tx_antenna_positions_ref(self.scenario)
+        tx_ant_pos = self.ccg._step_11_get_tx_antenna_positions(self.scenario).numpy()
         tx_ant_pos = tx_ant_pos
         max_err = self.max_rel_err(tx_ant_pos_ref, tx_ant_pos)
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_get_rx_antenna_positions_ref(self, topology):
+    def step_11_get_rx_antenna_positions_ref(self, scenario):
         """Reference implementation: Positions of the RX array elements"""
 
-        rx_orientations = topology.rx_orientations.numpy()
+        if scenario.direction == "uplink":
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real).numpy() # [batch size, number of BSs, 3]
+        else:
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real).numpy() # [batch size, number of UTs, 3]
 
         # Antenna locations in LCS and reshape for broadcasting
         ant_loc_lcs = np.array([[0.,0.,0.]])
@@ -363,8 +365,8 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
     def test_step_11_get_rx_antenna_positions(self):
         """Test 3GPP channel coefficient calculation: Positions of the RX array
         elements"""
-        rx_ant_pos_ref= self.step_11_get_rx_antenna_positions_ref(self.topology)
-        rx_ant_pos = self.ccg._step_11_get_rx_antenna_positions(self.topology).numpy()
+        rx_ant_pos_ref= self.step_11_get_rx_antenna_positions_ref(self.scenario)
+        rx_ant_pos = self.ccg._step_11_get_rx_antenna_positions(self.scenario).numpy()
         rx_ant_pos = rx_ant_pos
         max_err = self.max_rel_err(rx_ant_pos_ref, rx_ant_pos)
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
@@ -390,11 +392,15 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_field_matrix_ref(self, topology, aoa, aod, zoa, zod, H_phase):
+    def step_11_field_matrix_ref(self, scenario, aoa, aod, zoa, zod, H_phase):
         """Reference implementation: Field matrix"""
 
-        tx_orientations = topology.tx_orientations.numpy()
-        rx_orientations = topology.rx_orientations.numpy()
+        if scenario.direction == "uplink":
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3).numpy() # [batch size, number of UTs, 3]
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3).numpy() # [batch size, number of BSs, 3]
+        else:
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3).numpy() # [batch size, number of UTs, 3]
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3).numpy() # [batch size, number of BSs, 3]
         tx_num_ant = 1
         rx_num_ant = 1
 
@@ -449,14 +455,14 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         """Test 3GPP channel coefficient calculation:
         Field matrix calculation"""
         H_phase = self.step_11_phase_matrix_ref(self.phi, self.rays.xpr)
-        H_field_ref = self.step_11_field_matrix_ref(self.topology,
+        H_field_ref = self.step_11_field_matrix_ref(self.scenario,
                                                     self.rays.aoa.numpy(),
                                                     self.rays.aod.numpy(),
                                                     self.rays.zoa.numpy(),
                                                     self.rays.zod.numpy(),
                                                     H_phase)
 
-        H_field = self.ccg._step_11_field_matrix(self.topology,
+        H_field = self.ccg._step_11_field_matrix(self.scenario,
                                     self.rays.aoa.type(torch.float64),
                                     self.rays.aod.type(torch.float64),
                                     self.rays.zoa.type(torch.float64),
@@ -466,7 +472,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_array_offsets_ref(self, aoa, aod, zoa, zod, topology):
+    def step_11_array_offsets_ref(self, aoa, aod, zoa, zod, scenario):
         """Reference implementation: Array offset matrix"""
 
         # Arrival spherical unit vector
@@ -478,12 +484,12 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         r_hat_tx = np.expand_dims(r_hat_tx, axis=-2)
 
         # TX location vector
-        d_bar_tx = self.step_11_get_tx_antenna_positions_ref(topology)
+        d_bar_tx = self.step_11_get_tx_antenna_positions_ref(scenario)
         d_bar_tx = np.expand_dims(np.expand_dims(
             np.expand_dims(d_bar_tx, axis=2), axis=3), axis=4)
 
         # RX location vector
-        d_bar_rx = self.step_11_get_rx_antenna_positions_ref(topology)
+        d_bar_rx = self.step_11_get_rx_antenna_positions_ref(scenario)
         d_bar_rx = np.expand_dims(np.expand_dims(
                 np.expand_dims(d_bar_rx, axis=1), axis=3), axis=4)
 
@@ -506,9 +512,9 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                                      self.rays.aod.numpy(),
                                                      self.rays.zoa.numpy(),
                                                      self.rays.zod.numpy(),
-                                                     self.topology)
+                                                     self.scenario)
 
-        H_array = self.ccg._step_11_array_offsets(self.topology,
+        H_array = self.ccg._step_11_array_offsets(self.scenario,
                                 self.rays.aoa.type(torch.float64),
                                 self.rays.aod.type(torch.float64),
                                 self.rays.zoa.type(torch.float64),
@@ -518,10 +524,10 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_doppler_matrix_ref(self, topology, aoa, zoa, t):
+    def step_11_doppler_matrix_ref(self, scenario, aoa, zoa, t):
         """Reference implementation: Array offset matrix"""
 
-        velocities = topology.velocities.numpy()
+        velocities = scenario.ut_velocities.numpy()
 
         lambda_0 = self.scenario.lambda_0
 
@@ -529,10 +535,10 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         r_hat_rx = np.squeeze(self.unit_sphere_vector_ref(zoa, aoa), axis=-1)
 
         # Velocity vec
-        if topology.moving_end == "tx":
-            velocities = np.expand_dims(velocities, axis=2)
-        elif topology.moving_end == 'rx':
+        if scenario.direction == "downlink":
             velocities = np.expand_dims(velocities, axis=1)
+        elif scenario.direction == 'uplink':
+            velocities = np.expand_dims(velocities, axis=2)
         velocities = np.expand_dims(np.expand_dims(velocities, axis=3), axis=4)
 
         # Doppler matrix
@@ -545,12 +551,12 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
 
     def test_step_11_doppler_matrix(self):
         """Test 3GPP channel coefficient calculation: Doppler matrix"""
-        H_doppler_ref = self.step_11_doppler_matrix_ref(self.topology,
+        H_doppler_ref = self.step_11_doppler_matrix_ref(self.scenario,
                                                         self.rays.aoa.numpy(),
                                                         self.rays.zoa.numpy(),
                                                         self.sample_times.numpy())
 
-        H_doppler = self.ccg._step_11_doppler_matrix(self.topology,
+        H_doppler = self.ccg._step_11_doppler_matrix(self.scenario,
                             self.rays.aoa.type(torch.float64),
                             self.rays.zoa.type(torch.float64),
                             self.sample_times.type(torch.float64)).numpy()
@@ -560,15 +566,15 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         self.assertLessEqual(max_err, err_tol)
 
     def step_11_nlos_ref(self, phi, aoa, aod, zoa, zod, kappa, powers, t,
-        topology):
+        scenario):
         """Reference implemenrtation: Compute the channel matrix of the NLoS
         component"""
 
         H_phase = self.step_11_phase_matrix_ref(phi, kappa)
-        H_field = self.step_11_field_matrix_ref(topology, aoa, aod, zoa, zod,
+        H_field = self.step_11_field_matrix_ref(scenario, aoa, aod, zoa, zod,
                                                 H_phase)
-        H_array = self.step_11_array_offsets_ref(aoa, aod, zoa, zod, topology)
-        H_doppler = self.step_11_doppler_matrix_ref(topology, aoa, zoa, t)
+        H_array = self.step_11_array_offsets_ref(aoa, aod, zoa, zod, scenario)
+        H_doppler = self.step_11_doppler_matrix_ref(scenario, aoa, zoa, t)
 
         H_field = np.expand_dims(H_field, axis=-1)
         H_array = np.expand_dims(H_array, axis=-1)
@@ -594,10 +600,10 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                             self.rays.xpr.numpy(),
                                             self.rays.powers.numpy(),
                                             self.sample_times.numpy(),
-                                            self.topology)
+                                            self.scenario)
 
         H_full = self.ccg._step_11_nlos(self.phi.type(torch.float64),
-                            self.topology,
+                            self.scenario,
                             self.rays,
                             self.sample_times.type(torch.float64)).numpy()
         max_err = self.max_rel_err(H_full_ref, H_full)
@@ -670,7 +676,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                             self.rays.xpr.numpy(),
                                             self.rays.powers.numpy(),
                                             self.sample_times.numpy(),
-                                            self.topology)
+                                            self.scenario)
 
         H_nlos_ref, delays_nlos_ref = self.step_11_reduce_nlos_ref(
                                                     H_full_ref,
@@ -690,36 +696,49 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         max_err = self.max_rel_err(delays_nlos_ref, delays_nlos)
         self.assertLessEqual(max_err, err_tol)
 
-    def step_11_los_ref(self, t, topology):
+    def step_11_los_ref(self, t, scenario):
         """Reference implementation: Compute the channel matrix of the NLoS
         component 2"""
 
+        if scenario.direction == "uplink":
+            aoa = torch.permute(torch.remainder(scenario.los_aod_rad, 2*torch.pi), [0, 2, 1]).numpy()
+            aod = torch.permute(torch.remainder(scenario.los_aoa_rad, 2*torch.pi), [0, 2, 1]).numpy()
+            zoa = torch.permute(torch.remainder(scenario.los_zod_rad, 2*torch.pi), [0, 2, 1]).numpy()
+            zod = torch.permute(torch.remainder(scenario.los_zoa_rad, 2*torch.pi), [0, 2, 1]).numpy()
+        else:
+            aoa = scenario.los_aoa_rad
+            aod = scenario.los_aod_rad
+            zoa = scenario.los_zoa_rad
+            zod = scenario.los_zod_rad
+
         # LoS departure and arrival angles
-        los_aoa = np.expand_dims(np.expand_dims(topology.los_aoa,
+        los_aoa = np.expand_dims(np.expand_dims(aoa,
             axis=3), axis=4)
-        los_zoa = np.expand_dims(np.expand_dims(topology.los_zoa,
+        los_zoa = np.expand_dims(np.expand_dims(zoa,
             axis=3), axis=4)
-        los_aod = np.expand_dims(np.expand_dims(topology.los_aod,
+        los_aod = np.expand_dims(np.expand_dims(aod,
             axis=3), axis=4)
-        los_zod = np.expand_dims(np.expand_dims(topology.los_zod,
+        los_zod = np.expand_dims(np.expand_dims(zod,
             axis=3), axis=4)
 
         # Field matrix
         H_phase = np.reshape(np.array([[1.,0.],
                                     [0.,-1.]]), [1,1,1,1,1,2,2])
-        H_field = self.step_11_field_matrix_ref(topology, los_aoa, los_aod,
+        H_field = self.step_11_field_matrix_ref(scenario, los_aoa, los_aod,
                                                     los_zoa, los_zod, H_phase)
 
         # Array offset matrix
         H_array = self.step_11_array_offsets_ref(los_aoa, los_aod, los_zoa,
-                                                            los_zod, topology)
+                                                            los_zod, scenario)
 
         # Doppler matrix
-        H_doppler = self.step_11_doppler_matrix_ref(topology, los_aoa,
+        H_doppler = self.step_11_doppler_matrix_ref(scenario, los_aoa,
                                                                     los_zoa, t)
 
         # Phase shift due to propagation delay
-        d3D = topology.distance_3d
+        d3D = scenario.distance_3d
+        if scenario.direction == "uplink":
+            d3D = torch.permute(d3D, [0, 2, 1]).numpy()
         lambda_0 = self.scenario.lambda_0
         H_delay = np.exp(1j*2*np.pi*d3D/lambda_0)
 
@@ -735,9 +754,9 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
 
     def test_step11_los(self):
         """Test 3GPP channel coefficient calculation: LoS channel matrix"""
-        H_los_ref = self.step_11_los_ref(self.sample_times.numpy(), self.topology)
+        H_los_ref = self.step_11_los_ref(self.sample_times.numpy(), self.scenario)
 
-        H_los = self.ccg._step_11_los(self.topology, self.sample_times).numpy()
+        H_los = self.ccg._step_11_los(self.scenario, self.sample_times).numpy()
         H_los = H_los
 
         max_err = self.max_rel_err(H_los_ref, H_los)
@@ -745,17 +764,17 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         self.assertLessEqual(max_err, err_tol)
 
     def step_11_ref(self, phi, k_factor, aoa, aod, zoa, zod, kappa, powers,
-                                                    delays, t, topology, c_ds):
+                                                    delays, t, scenario, c_ds):
         """Reference implementation: Step 11"""
 
         ## NLoS
         H_full = self.step_11_nlos_ref(phi, aoa, aod, zoa, zod, kappa, powers,
-                                                                t, topology)
+                                                                t, scenario)
         H_nlos, delays_nlos = self.step_11_reduce_nlos_ref(H_full, powers,
                                                                 delays, c_ds)
 
         ## LoS
-        H_los = self.step_11_los_ref(t, topology)
+        H_los = self.step_11_los_ref(t, scenario)
 
         k_factor = np.reshape(k_factor, list(k_factor.shape) + [1,1,1,1])
         los_scaling = np.sqrt(k_factor/(k_factor+1.))
@@ -767,7 +786,9 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         H_los = np.concatenate([H_los_los, H_los_nlos[:,:,:,1:,...]], axis=3)
 
         ## Setting up the CIR according to the link configuration
-        los_status = topology.los
+        los_status = scenario.is_los
+        if scenario.direction == "uplink":
+            los_status = torch.permute(los_status, [0, 2, 1]).numpy()
         los_status = np.reshape(los_status, list(los_status.shape) + [1,1,1,1])
         H = np.where(los_status, H_los, H_nlos)
 
@@ -776,7 +797,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
     def test_step_11(self):
         """Test 3GPP channel coefficient calculation: Step 11"""
         H, delays_nlos = self.ccg._step_11(self.phi.type(torch.float64),
-                                            self.topology,
+                                            self.scenario,
                                             self.lsp.k_factor,
                                             self.rays,
                                             self.sample_times.type(torch.float64),
@@ -794,7 +815,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                                 self.rays.powers.numpy(),
                                                 self.rays.delays.numpy(),
                                                 self.sample_times.numpy(),
-                                                self.topology,
+                                                self.scenario,
                                                 self.c_ds)
 
         err_tol = TestChannelCoefficientsGenerator.MAX_ERR

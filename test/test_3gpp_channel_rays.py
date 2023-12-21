@@ -6,10 +6,8 @@ import unittest
 import numpy as np
 from channel_test_utils import *
 from scipy.stats import kstest
-from sionna_torch.RMAScenario import RMaScenario
-from sionna_torch.UMAScenario import UMaScenario
 from sionna_torch.LSPGenerator import LSP
-from sionna_torch.RaysGenerator import RaysGenerator
+from sionna_torch.SionnaScenario import SionnaScenario
 
 
 class TestRays(unittest.TestCase):
@@ -17,8 +15,8 @@ class TestRays(unittest.TestCase):
     """
 
     # Batch size used to check the LSP distribution
-    # BATCH_SIZE = 10000
-    BATCH_SIZE = 100000
+    BATCH_SIZE = 10000
+    # BATCH_SIZE = 100000
 
     # Carrier frequency
     CARRIER_FREQUENCY = 3.5e9 # Hz
@@ -104,14 +102,17 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['rma'] = {}
         TestRays.los_zod['rma'] = {}
         TestRays.mu_log_zsd['rma'] = {}
-        scenario = RMaScenario(fc, "downlink", rng=rng, dtype=torch.complex128)
-        ray_sampler = RaysGenerator(scenario, rng=rng)
+        is_urban = np.zeros([batch_size, 1, 1], dtype=bool)
+        # scenario = RMaScenario(fc, "downlink", rng=rng, dtype=torch.complex128)
+        # ray_sampler = RaysGenerator(scenario, rng=rng)
 
         #### LoS
-        scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
-                                            ut_velocities, los=True)
-        ray_sampler.topology_updated_callback()
-        rays = ray_sampler(lsp)
+        # scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
+        #                                     ut_velocities, los=True)
+        # ray_sampler.topology_updated_callback()
+        # rays = ray_sampler(lsp)
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        rays = scenario._ray_sampler(lsp)
         TestRays.delays['rma']['los'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['rma']['los'] = torch.squeeze(rays.powers).numpy()
         TestRays.aoa['rma']['los'] = torch.squeeze(rays.aoa).numpy()
@@ -120,17 +121,19 @@ class TestRays(unittest.TestCase):
         TestRays.zod['rma']['los'] = torch.squeeze(rays.zod).numpy()
         TestRays.xpr['rma']['los'] = torch.squeeze(rays.xpr).numpy()
         TestRays.num_clusters['rma']['los'] = 11
-        TestRays.los_aoa['rma']['los'] = scenario.los_aoa.numpy()
-        TestRays.los_aod['rma']['los'] = scenario.los_aod.numpy()
-        TestRays.los_zoa['rma']['los'] = scenario.los_zoa.numpy()
-        TestRays.los_zod['rma']['los'] = scenario.los_zod.numpy()
+        TestRays.los_aoa['rma']['los'] = torch.rad2deg(scenario.los_aoa_rad).numpy()
+        TestRays.los_aod['rma']['los'] = torch.rad2deg(scenario.los_aod_rad).numpy()
+        TestRays.los_zoa['rma']['los'] = torch.rad2deg(scenario.los_zoa_rad).numpy()
+        TestRays.los_zod['rma']['los'] = torch.rad2deg(scenario.los_zod_rad).numpy()
         TestRays.mu_log_zsd['rma']['los'] = scenario.lsp_log_mean[:,0,0,6]
 
         #### NLoS
-        scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
-                                            ut_velocities, los=False)
-        ray_sampler.topology_updated_callback()
-        rays = ray_sampler(lsp)
+        # scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
+        #                                     ut_velocities, los=False)
+        # ray_sampler.topology_updated_callback()
+        # rays = ray_sampler(lsp)
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        rays = scenario._ray_sampler(lsp)
         TestRays.delays['rma']['nlos'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['rma']['nlos'] = torch.squeeze(rays.powers).numpy()
         TestRays.aoa['rma']['nlos'] = torch.squeeze(rays.aoa).numpy()
@@ -139,10 +142,10 @@ class TestRays(unittest.TestCase):
         TestRays.zod['rma']['nlos'] = torch.squeeze(rays.zod).numpy()
         TestRays.xpr['rma']['nlos'] = torch.squeeze(rays.xpr).numpy()
         TestRays.num_clusters['rma']['nlos'] = 10
-        TestRays.los_aoa['rma']['nlos'] = scenario.los_aoa.numpy()
-        TestRays.los_aod['rma']['nlos'] = scenario.los_aod.numpy()
-        TestRays.los_zoa['rma']['nlos'] = scenario.los_zoa.numpy()
-        TestRays.los_zod['rma']['nlos'] = scenario.los_zod.numpy()
+        TestRays.los_aoa['rma']['nlos'] = torch.rad2deg(scenario.los_aoa_rad).numpy()
+        TestRays.los_aod['rma']['nlos'] = torch.rad2deg(scenario.los_aod_rad).numpy()
+        TestRays.los_zoa['rma']['nlos'] = torch.rad2deg(scenario.los_zoa_rad).numpy()
+        TestRays.los_zod['rma']['nlos'] = torch.rad2deg(scenario.los_zod_rad).numpy()
         TestRays.mu_log_zsd['rma']['nlos'] = scenario.lsp_log_mean[:,0,0,6]
 
         #################### UMa
@@ -159,14 +162,17 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['uma'] = {}
         TestRays.los_zod['uma'] = {}
         TestRays.mu_log_zsd['uma'] = {}
-        scenario = UMaScenario(  fc, "downlink", rng=rng, dtype=torch.complex128)
-        ray_sampler = RaysGenerator(scenario, rng=rng)
+        is_urban = np.ones([batch_size, 1, 1], dtype=bool)
+        # scenario = UMaScenario(  fc, "downlink", rng=rng, dtype=torch.complex128)
+        # ray_sampler = RaysGenerator(scenario, rng=rng)
 
         #### LoS
-        scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
-                                            ut_velocities, los=True)
-        ray_sampler.topology_updated_callback()
-        rays = ray_sampler(lsp)
+        # scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
+        #                                     ut_velocities, los=True)
+        # ray_sampler.topology_updated_callback()
+        # rays = ray_sampler(lsp)
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        rays = scenario._ray_sampler(lsp)
         TestRays.delays['uma']['los'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['uma']['los'] = torch.squeeze(rays.powers).numpy()
         TestRays.aoa['uma']['los'] = torch.squeeze(rays.aoa).numpy()
@@ -175,17 +181,19 @@ class TestRays(unittest.TestCase):
         TestRays.zod['uma']['los'] = torch.squeeze(rays.zod).numpy()
         TestRays.xpr['uma']['los'] = torch.squeeze(rays.xpr).numpy()
         TestRays.num_clusters['uma']['los'] = 12
-        TestRays.los_aoa['uma']['los'] = scenario.los_aoa.numpy()
-        TestRays.los_aod['uma']['los'] = scenario.los_aod.numpy()
-        TestRays.los_zoa['uma']['los'] = scenario.los_zoa.numpy()
-        TestRays.los_zod['uma']['los'] = scenario.los_zod.numpy()
+        TestRays.los_aoa['uma']['los'] = torch.rad2deg(scenario.los_aoa_rad).numpy()
+        TestRays.los_aod['uma']['los'] = torch.rad2deg(scenario.los_aod_rad).numpy()
+        TestRays.los_zoa['uma']['los'] = torch.rad2deg(scenario.los_zoa_rad).numpy()
+        TestRays.los_zod['uma']['los'] = torch.rad2deg(scenario.los_zod_rad).numpy()
         TestRays.mu_log_zsd['uma']['los'] = scenario.lsp_log_mean[:,0,0,6]
 
         #### NLoS
-        scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
-                                            ut_velocities, los=False)
-        ray_sampler.topology_updated_callback()
-        rays = ray_sampler(lsp)
+        # scenario.set_topology(ut_loc, bs_loc, ut_orientations, bs_orientations,
+        #                                     ut_velocities, los=False)
+        # ray_sampler.topology_updated_callback()
+        # rays = ray_sampler(lsp)
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        rays = scenario._ray_sampler(lsp)
         TestRays.delays['uma']['nlos'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['uma']['nlos'] = torch.squeeze(rays.powers).numpy()
         TestRays.aoa['uma']['nlos'] = torch.squeeze(rays.aoa).numpy()
@@ -194,10 +202,10 @@ class TestRays(unittest.TestCase):
         TestRays.zod['uma']['nlos'] = torch.squeeze(rays.zod).numpy()
         TestRays.xpr['uma']['nlos'] = torch.squeeze(rays.xpr).numpy()
         TestRays.num_clusters['uma']['nlos'] = 20
-        TestRays.los_aoa['uma']['nlos'] = scenario.los_aoa.numpy()
-        TestRays.los_aod['uma']['nlos'] = scenario.los_aod.numpy()
-        TestRays.los_zoa['uma']['nlos'] = scenario.los_zoa.numpy()
-        TestRays.los_zod['uma']['nlos'] = scenario.los_zod.numpy()
+        TestRays.los_aoa['uma']['nlos'] = torch.rad2deg(scenario.los_aoa_rad).numpy()
+        TestRays.los_aod['uma']['nlos'] = torch.rad2deg(scenario.los_aod_rad).numpy()
+        TestRays.los_zoa['uma']['nlos'] = torch.rad2deg(scenario.los_zoa_rad).numpy()
+        TestRays.los_zod['uma']['nlos'] = torch.rad2deg(scenario.los_zod_rad).numpy()
         TestRays.mu_log_zsd['uma']['nlos'] = scenario.lsp_log_mean[:,0,0,6]
 
         ###### General

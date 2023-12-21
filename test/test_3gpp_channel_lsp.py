@@ -6,9 +6,7 @@ import unittest
 import numpy as np
 from channel_test_utils import *
 from scipy.stats import kstest, norm
-from sionna_torch.RMAScenario import RMaScenario
-from sionna_torch.UMAScenario import UMaScenario
-from sionna_torch.LSPGenerator import LSPGenerator
+from sionna_torch.SionnaScenario import SionnaScenario
 
 
 class TestLSP(unittest.TestCase):
@@ -37,11 +35,11 @@ class TestLSP(unittest.TestCase):
     # distribution. A Kolmogorov-Smirnov (KS) test is used to check that the
     # LSP follow the appropriate distribution. This is the threshold below
     # which the KS statistic `D` should be for passing the test.
-    MAX_ERR_KS = 0.1
-    # MAX_ERR_KS = 1e-2
+    # MAX_ERR_KS = 0.1
+    MAX_ERR_KS = 1e-2
 
     # # Maximum allowed deviation for cross-correlation of LSP parameters
-    MAX_ERR_CROSS_CORR = 0.1
+    MAX_ERR_CROSS_CORR = 5e-2
     # MAX_ERR_CROSS_CORR = 3e-2
 
     # # Maximum allowed deviation for spatial correlation of LSP parameters
@@ -125,37 +123,19 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["rma"] = {}
         TestLSP.zod_offset["rma"] = {}
         TestLSP.pathlosses["rma"] = {}
-        scenario = RMaScenario(fc, "uplink", rng=rng, dtype=torch.complex128)
-        lsp_sampler = LSPGenerator(scenario, rng=rng)
+        is_urban = np.zeros([batch_size, nb_bs, nb_ut], dtype=bool)
 
         # LoS
-        scenario.set_topology(
-            ut_loc,
-            bs_loc,
-            ut_orientations,
-            bs_orientations,
-            ut_velocities,
-            True,
-        )
-        lsp_sampler.topology_updated_callback()
-        TestLSP.lsp_samples["rma"]["los"] = lsp_sampler()
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        TestLSP.lsp_samples["rma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["los"] = scenario.zod_offset
-        TestLSP.pathlosses["rma"]["los"] = lsp_sampler.sample_pathloss()[:, 0, :].numpy()
+        TestLSP.pathlosses["rma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        in_state = generate_random_bool(batch_size, nb_ut, 0.0)
-        scenario.set_topology(
-            ut_loc,
-            bs_loc,
-            ut_orientations,
-            bs_orientations,
-            ut_velocities,
-            False,
-        )
-        lsp_sampler.topology_updated_callback()
-        TestLSP.lsp_samples["rma"]["nlos"] = lsp_sampler()
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        TestLSP.lsp_samples["rma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["nlos"] = scenario.zod_offset
-        TestLSP.pathlosses["rma"]["nlos"] = lsp_sampler.sample_pathloss()[:, 0, :].numpy()
+        TestLSP.pathlosses["rma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         TestLSP.los_prob["rma"] = scenario.los_probability.numpy()
         TestLSP.rma_w = scenario.average_street_width
@@ -165,40 +145,21 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["uma"] = {}
         TestLSP.zod_offset["uma"] = {}
         TestLSP.pathlosses["uma"] = {}
-        scenario = UMaScenario(fc, "uplink", rng=rng, dtype=torch.complex128)
-        lsp_sampler = LSPGenerator(scenario, rng=rng)
+        is_urban = np.ones([batch_size, nb_bs, nb_ut], dtype=bool)
 
         # LoS
-        scenario.set_topology(
-            ut_loc,
-            bs_loc,
-            ut_orientations,
-            bs_orientations,
-            ut_velocities,
-            True,
-        )
-        lsp_sampler.topology_updated_callback()
-        TestLSP.lsp_samples["uma"]["los"] = lsp_sampler()
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        TestLSP.lsp_samples["uma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["los"] = scenario.zod_offset
-        TestLSP.pathlosses["uma"]["los"] = lsp_sampler.sample_pathloss()[:, 0, :].numpy()
+        TestLSP.pathlosses["uma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario.set_topology(
-            ut_loc,
-            bs_loc,
-            ut_orientations,
-            bs_orientations,
-            ut_velocities,
-            False,
-        )
-        lsp_sampler.topology_updated_callback()
-        TestLSP.lsp_samples["uma"]["nlos"] = lsp_sampler()
+        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        TestLSP.lsp_samples["uma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["nlos"] = scenario.zod_offset
-        TestLSP.pathlosses["uma"]["nlos"] = lsp_sampler.sample_pathloss()[:, 0, :].numpy()
+        TestLSP.pathlosses["uma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         TestLSP.los_prob["uma"] = scenario.los_probability.numpy()
-
-        # Sample pathlosses with high O2I loss model. Only with UMa
 
         # The following values do not depend on the scenario
         TestLSP.d_2d = scenario.distance_2d.numpy()
@@ -275,7 +236,7 @@ class TestLSP(unittest.TestCase):
     def test_zsd_dist(self, model, submodel):
         """Test the distribution of LSP ZSD"""
         d_2d = TestLSP.d_2d[0, 0, 0]
-        samples = TestLSP.lsp_samples[model][submodel].zsd.numpy().flatten()
+        samples = TestLSP.lsp_samples[model][submodel].zsd[:,0,0].numpy().flatten()
         samples = np.log10(samples)
         mu, std = log10ZSD(
             model, submodel, d_2d, TestLSP.CARRIER_FREQUENCY, TestLSP.H_BS, TestLSP.H_UT
@@ -434,7 +395,7 @@ class TestLSP(unittest.TestCase):
         d_2d = self.d_2d
         fc = TestLSP.CARRIER_FREQUENCY
         h_ut = TestLSP.H_UT
-        samples = self.zod_offset[model][submodel]
+        samples = self.zod_offset[model][submodel].numpy()
         samples_ref = zod_offset(model, submodel, fc, d_2d, h_ut)
         max_err = np.max(np.abs(samples - samples_ref))
         self.assertLessEqual(max_err, TestLSP.MAX_ERR_ZOD_OFFSET, f"{model}:{submodel}")
@@ -469,103 +430,25 @@ class TestLSP(unittest.TestCase):
             self.assertLessEqual(
                 max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
             )
-        elif model == "umi":
-            if submodel == "o2i":
-                for loss_model in ("low", "high"):
-                    samples = TestLSP.pathlosses[model][submodel + "-" + loss_model]
-                    mean_samples = np.mean(samples, axis=0)
-                    std_samples = np.std(samples, axis=0)
-                    #
-                    d_2ds = TestLSP.d_2d[0, 0]
-                    d_3ds = TestLSP.d_3d
-                    samples_ref = np.array(
-                        [
-                            pathloss(
-                                model, submodel, d_2d, d_3d, fc, h_bs, h_ut, loss_model
-                            )
-                            for d_2d, d_3d in zip(d_2ds, d_3ds)
-                        ]
-                    )
-                    #
-                    max_err = np.max(np.abs(mean_samples - samples_ref))
-                    self.assertLessEqual(
-                        max_err, TestLSP.MAX_ERR_PATHLOSS_MEAN, f"{model}:{submodel}"
-                    )
-                    max_err = np.max(
-                        np.abs(std_samples - pathloss_std(model, submodel, loss_model))
-                    )
-                    self.assertLessEqual(
-                        max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
-                    )
-            else:
-                samples = TestLSP.pathlosses[model][submodel]
-                mean_samples = np.mean(samples, axis=0)
-                std_samples = np.std(samples, axis=0)
-                #
-                d_2ds = TestLSP.d_2d[0, 0]
-                d_3ds = TestLSP.d_3d
-                samples_ref = np.array(
-                    [
-                        pathloss(model, submodel, d_2d, d_3d, fc, h_bs, h_ut)
-                        for d_2d, d_3d in zip(d_2ds, d_3ds)
-                    ]
-                )
-                #
-                max_err = np.max(np.abs(mean_samples - samples_ref))
-                self.assertLessEqual(
-                    max_err, TestLSP.MAX_ERR_PATHLOSS_MEAN, f"{model}:{submodel}"
-                )
-                max_err = np.max(np.abs(std_samples - pathloss_std(model, submodel)))
-                self.assertLessEqual(
-                    max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
-                )
         elif model == "uma":
-            if submodel == "o2i":
-                for loss_model in ("low", "high"):
-                    samples = TestLSP.pathlosses[model][submodel + "-" + loss_model]
-                    mean_samples = np.mean(samples, axis=0)
-                    std_samples = np.std(samples, axis=0)
-                    #
-                    d_2ds = TestLSP.d_2d[0, 0]
-                    d_3ds = TestLSP.d_3d
-                    samples_ref = np.array(
-                        [
-                            pathloss(
-                                model, submodel, d_2d, d_3d, fc, h_bs, h_ut, loss_model
-                            )
-                            for d_2d, d_3d in zip(d_2ds, d_3ds)
-                        ]
-                    )
-                    #
-                    max_err = np.max(np.abs(mean_samples - samples_ref))
-                    self.assertLessEqual(
-                        max_err, TestLSP.MAX_ERR_PATHLOSS_MEAN, f"{model}:{submodel}"
-                    )
-                    max_err = np.max(
-                        np.abs(std_samples - pathloss_std(model, submodel, loss_model))
-                    )
-                    self.assertLessEqual(
-                        max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
-                    )
-            else:
-                samples = TestLSP.pathlosses[model][submodel]
-                mean_samples = np.mean(samples, axis=0)
-                std_samples = np.std(samples, axis=0)
-                #
-                d_2ds = TestLSP.d_2d[0, 0]
-                d_3ds = TestLSP.d_3d
-                samples_ref = np.array(
-                    [
-                        pathloss(model, submodel, d_2d, d_3d, fc, h_bs, h_ut)
-                        for d_2d, d_3d in zip(d_2ds, d_3ds)
-                    ]
-                )
-                #
-                max_err = np.max(np.abs(mean_samples - samples_ref))
-                self.assertLessEqual(
-                    max_err, TestLSP.MAX_ERR_PATHLOSS_MEAN, f"{model}:{submodel}"
-                )
-                max_err = np.max(np.abs(std_samples - pathloss_std(model, submodel)))
-                self.assertLessEqual(
-                    max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
-                )
+            samples = TestLSP.pathlosses[model][submodel]
+            mean_samples = np.mean(samples, axis=0)
+            std_samples = np.std(samples, axis=0)
+            #
+            d_2ds = TestLSP.d_2d[0, 0]
+            d_3ds = TestLSP.d_3d
+            samples_ref = np.array(
+                [
+                    pathloss(model, submodel, d_2d, d_3d, fc, h_bs, h_ut)
+                    for d_2d, d_3d in zip(d_2ds, d_3ds)
+                ]
+            )
+            #
+            max_err = np.max(np.abs(mean_samples - samples_ref))
+            self.assertLessEqual(
+                max_err, TestLSP.MAX_ERR_PATHLOSS_MEAN, f"{model}:{submodel}"
+            )
+            max_err = np.max(np.abs(std_samples - pathloss_std(model, submodel)))
+            self.assertLessEqual(
+                max_err, TestLSP.MAX_ERR_PATHLOSS_STD, f"{model}:{submodel}"
+            )

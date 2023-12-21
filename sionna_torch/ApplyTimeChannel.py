@@ -128,7 +128,7 @@ class ApplyTimeChannel():
         first_row = np.concatenate([[0], np.full([l_tot-1], num_time_samples)])
         self._g = torch.from_numpy(scipy.linalg.toeplitz(first_colum, first_row))
 
-    def __call__(self, x, h_time, no=0.0):
+    def __call__(self, x, h_time, no=1e-14):
         # Preparing the channel input for broadcasting and matrix multiplication
         x = torch.nn.functional.pad(x, (0,1))
         x = x[:, None, None]
@@ -140,7 +140,6 @@ class ApplyTimeChannel():
         y = torch.sum(h_time*x, axis=-1)
         y = torch.sum(torch.sum(y, axis=4), axis=3)
 
-        snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1)) - 10*np.log10(no)
 
         # Add AWGN if requested
         if self._add_awgn:
@@ -157,5 +156,8 @@ class ApplyTimeChannel():
 
             # Add noise to input
             y = y + noise
+            snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1)) - 10*np.log10(no)
+        else:
+            snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
 
         return y, snr

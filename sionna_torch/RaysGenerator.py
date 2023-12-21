@@ -7,7 +7,6 @@ Class for sampling rays following 3GPP TR38.901 specifications and giving a
 channel simulation scenario and LSPs.
 """
 import torch
-import numpy as np
 
 class Rays:
     # pylint: disable=line-too-long
@@ -185,28 +184,12 @@ class RaysGenerator:
         """
 
         scenario = self._scenario
-        num_clusters_los = scenario.num_clusters_los
-        num_clusters_nlos = scenario.num_clusters_nlos
+        num_clusters = scenario.get_param("numClusters")
         num_clusters_max = scenario.num_clusters_max
 
         # Initialize an empty mask
-        mask = torch.zeros((scenario.batch_size, scenario.num_bs, scenario.num_ut, num_clusters_max), dtype=self._scenario._dtype_real)
-
-        # LoS
-        mask_los = torch.concatenate([torch.zeros([num_clusters_los], dtype=self._scenario._dtype_real),
-            torch.ones([num_clusters_max-num_clusters_los], dtype=self._scenario._dtype_real)], 0)
-        mask_los = torch.reshape(mask_los, [1, 1, 1, num_clusters_max])
-        los_slice_mask = scenario.los
-        los_slice_mask = torch.unsqueeze(los_slice_mask, 3)
-        mask = mask + los_slice_mask*mask_los
-
-        # NLoS
-        mask_nlos = torch.concatenate([torch.zeros([num_clusters_nlos], dtype=self._scenario._dtype_real),
-            torch.ones([num_clusters_max-num_clusters_nlos], dtype=self._scenario._dtype_real)], 0)
-        mask_nlos = torch.reshape(mask_nlos, [1, 1, 1, num_clusters_max])
-        nlos_slice_mask = torch.logical_not(scenario.los)
-        nlos_slice_mask = torch.unsqueeze(nlos_slice_mask, 3)
-        mask = mask + nlos_slice_mask*mask_nlos
+        mask = torch.arange(0, num_clusters_max, dtype=self._scenario._dtype_real)
+        mask = torch.where(torch.lt(mask,num_clusters[...,None]), 0.0, 1.0)
 
         # Save the mask
         self._cluster_mask = mask
@@ -268,7 +251,7 @@ class RaysGenerator:
             + 0.0002*torch.square(rician_k_factor_db)
             + 0.000017*torch.pow(rician_k_factor_db, 3.0))
         scaling_factor = torch.unsqueeze(scaling_factor, 3)
-        delays = torch.where(torch.unsqueeze(scenario.los, 3),
+        delays = torch.where(torch.unsqueeze(scenario.is_los, 3),
             unscaled_delays / scaling_factor, unscaled_delays)
 
         return delays.type(self._scenario._dtype_real), unscaled_delays.type(self._scenario._dtype_real)
@@ -330,7 +313,7 @@ class RaysGenerator:
         p_1_los = rician_k_factor*p_nlos_scaling
         powers_1 = p_nlos_scaling*powers[:,:,:,:1] + p_1_los
         powers_n = p_nlos_scaling*powers[:,:,:,1:]
-        powers_for_angles_gen = torch.where(torch.unsqueeze(scenario.los, 3),
+        powers_for_angles_gen = torch.where(torch.unsqueeze(scenario.is_los, 3),
             torch.concatenate([powers_1, powers_n], 3), powers)
 
         return powers.type(self._scenario._dtype_real), powers_for_angles_gen.type(self._scenario._dtype_real)
@@ -374,10 +357,10 @@ class RaysGenerator:
 
         # Loading the angle spread
         if angle_type == 'aod':
-            azimuth_angles_los = scenario.los_aod
+            azimuth_angles_los = torch.rad2deg(scenario.los_aod_rad)
             cluster_angle_spread = scenario.get_param('cASD')
         else:
-            azimuth_angles_los = scenario.los_aoa
+            azimuth_angles_los =torch.rad2deg(scenario.los_aoa_rad)
             cluster_angle_spread = scenario.get_param('cASA')
         # Adding cluster dimension for broadcasting
         azimuth_angles_los = torch.unsqueeze(azimuth_angles_los, 3)
@@ -391,7 +374,7 @@ class RaysGenerator:
         c_phi_los = c_phi_nlos*(1.1035- 0.028*rician_k_factor_db
             - 0.002*torch.square(rician_k_factor_db)
             + 0.0001*torch.pow(rician_k_factor_db, 3.))
-        c_phi = torch.where(torch.unsqueeze(scenario.los, 3),
+        c_phi = torch.where(torch.unsqueeze(scenario.is_los, 3),
             c_phi_los, c_phi_nlos)
 
         # Inverse Gaussian function
@@ -406,10 +389,9 @@ class RaysGenerator:
         random_sign = random_sign.type(self._scenario._dtype_real)
         azimuth_spread = azimuth_spread.repeat(1,1,1,num_clusters_max)
         random_comp = torch.normal(mean=0.0, std=azimuth_spread/7.0, generator=self.rng).type(self._scenario._dtype_real)
-        azimuth_angles = (random_sign*azimuth_angles_prime + random_comp
-            + azimuth_angles_los)
+        azimuth_angles = (random_sign*azimuth_angles_prime + random_comp + azimuth_angles_los)
         azimuth_angles = (azimuth_angles -
-            torch.where(torch.unsqueeze(scenario.los, 3),
+            torch.where(torch.unsqueeze(scenario.is_los, 3),
             random_sign[:,:,:,:1]*azimuth_angles_prime[:,:,:,:1]
             + random_comp[:,:,:,:1], 0.0))
 
@@ -515,7 +497,7 @@ class RaysGenerator:
         num_ut = scenario.num_ut
 
         # Tensors giving UTs states
-        los = scenario.los
+        los = scenario.is_los
         los_uts = los
         nlos_uts = torch.logical_not(los)
 
@@ -529,12 +511,12 @@ class RaysGenerator:
 
         # Loading angle spread
         if angle_type == 'zod':
-            zenith_angles_los = scenario.los_zod
-            cluster_angle_spread = (3./8.)*torch.pow(10.0, torch.from_numpy(scenario.lsp_log_mean[:,:,:,6]))
+            zenith_angles_los = torch.rad2deg(scenario.los_zod_rad)
+            cluster_angle_spread = (3./8.)*torch.pow(10.0, scenario.lsp_log_mean[:,:,:,6])
         else:
             cluster_angle_spread = scenario.get_param('cZSA')
-            zenith_angles_los = scenario.los_zoa
-        zod_offset = torch.from_numpy(scenario.zod_offset)
+            zenith_angles_los = torch.rad2deg(scenario.los_zoa_rad)
+        zod_offset = scenario.zod_offset
         # Adding cluster dimension for broadcasting
         zod_offset = torch.unsqueeze(zod_offset, 3)
         zenith_angles_los = torch.unsqueeze(zenith_angles_los, 3)
