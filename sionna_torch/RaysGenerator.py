@@ -96,7 +96,8 @@ class RaysGenerator:
                                          0.8844, -0.8844,
                                          1.1481, -0.1481,
                                          1.5195, -1.5195,
-                                         2.1551, -2.1551], dtype=self._scenario._dtype_real)
+                                         2.1551, -2.1551],
+                                         dtype=self._scenario._dtype_real, device=self._scenario.device)
 
     #########################################
     # Public methods and properties
@@ -184,7 +185,7 @@ class RaysGenerator:
         num_clusters_max = scenario.num_clusters_max
 
         # Initialize an empty mask
-        mask = torch.arange(0, num_clusters_max, dtype=self._scenario._dtype_real)
+        mask = torch.arange(0, num_clusters_max, dtype=self._scenario._dtype_real, device=self._scenario.device)
         mask = torch.where(torch.lt(mask,num_clusters[...,None]), 0.0, 1.0)
 
         # Save the mask
@@ -228,7 +229,7 @@ class RaysGenerator:
         # Generating random cluster delays
         # We don't start at 0 to avoid numerical errors
         delay_spread = torch.unsqueeze(delay_spread, 3)
-        x = torch.rand([batch_size, num_bs, num_ut, num_clusters_max], generator=self.rng, dtype=self._scenario._dtype_real)
+        x = torch.rand([batch_size, num_bs, num_ut, num_clusters_max], generator=self.rng, dtype=self._scenario._dtype_real, device=self._scenario.device)
         x = (1e-6 - 1.0) * x + 1.0 # 1e-6:1.0
 
         # Moving to linear domain
@@ -289,7 +290,7 @@ class RaysGenerator:
 
         # Generate unnormalized cluster powers
         cluster_shadowing_std_db = cluster_shadowing_std_db.repeat(1,1,1,num_clusters_max)
-        z = torch.normal(mean=0.0, std=cluster_shadowing_std_db, generator=self.rng).type(self._scenario._dtype_real)
+        z = torch.normal(mean=0.0, std=cluster_shadowing_std_db, generator=self.rng)
 
         # Moving to linear domain
         powers_unnormalized = (torch.exp(-unscaled_delays*
@@ -380,11 +381,11 @@ class RaysGenerator:
                                                                 )/c_phi)
 
         # Introducing random variation
-        random_sign = torch.randint(0, 2, [batch_size, num_bs, 1, num_clusters_max], generator=self.rng, dtype=torch.int32)
+        random_sign = torch.randint(0, 2, [batch_size, num_bs, 1, num_clusters_max], generator=self.rng, dtype=torch.int32, device=self._scenario.device)
         random_sign = 2*random_sign - 1
         random_sign = random_sign.type(self._scenario._dtype_real)
         azimuth_spread = azimuth_spread.repeat(1,1,1,num_clusters_max)
-        random_comp = torch.normal(mean=0.0, std=azimuth_spread/7.0, generator=self.rng).type(self._scenario._dtype_real)
+        random_comp = torch.normal(mean=0.0, std=azimuth_spread/7.0, generator=self.rng)
         azimuth_angles = (random_sign*azimuth_angles_prime + random_comp + azimuth_angles_los)
         azimuth_angles = (azimuth_angles -
             torch.where(torch.unsqueeze(scenario.is_los, 3),
@@ -480,11 +481,11 @@ class RaysGenerator:
         zenith_angles_prime = -zenith_spread*torch.log(z)/c_theta
 
         # Random component
-        random_sign = torch.randint(0, 2, [batch_size, num_bs, 1, num_clusters_max], generator=self.rng, dtype=torch.int32)
+        random_sign = torch.randint(0, 2, [batch_size, num_bs, 1, num_clusters_max], generator=self.rng, dtype=torch.int32, device=self._scenario.device)
         random_sign = 2*random_sign - 1
         random_sign = random_sign.type(self._scenario._dtype_real)
         zenith_spread = zenith_spread.repeat(1,1,1,num_clusters_max)
-        random_comp = torch.normal(mean=0.0, std=zenith_spread/7.0, generator=self.rng).type(self._scenario._dtype_real)
+        random_comp = torch.normal(mean=0.0, std=zenith_spread/7.0, generator=self.rng)
 
         # The center cluster angles depend on the UT scenario
         zenith_angles = random_sign*zenith_angles_prime + random_comp
@@ -544,7 +545,7 @@ class RaysGenerator:
 
         # Create randomly shuffled indices by arg-sorting samples from a random
         # normal distribution
-        random_numbers = torch.normal(0.0, 1.0, size=[batch_size, num_bs, 1, scenario.num_clusters_max, scenario.rays_per_cluster], generator=self.rng)
+        random_numbers = torch.normal(0.0, 1.0, size=[batch_size, num_bs, 1, scenario.num_clusters_max, scenario.rays_per_cluster], generator=self.rng, device=self._scenario.device)
         shuffled_indices = torch.argsort(random_numbers)
         shuffled_indices = torch.tile(shuffled_indices, [1, 1, num_ut, 1, 1])
         # Shuffling the angles
@@ -629,7 +630,7 @@ class RaysGenerator:
 
         # XPR are assumed to follow a log-normal distribution.
         # Generate XPR in log-domain
-        x = torch.normal(mean=mu_xpr, std=std_xpr, generator=self.rng).type(self._scenario._dtype_real)
+        x = torch.normal(mean=mu_xpr, std=std_xpr, generator=self.rng)
         # To linear domain
         cross_polarization_power_ratios = torch.pow(10.0, x/10.0)
         return cross_polarization_power_ratios

@@ -20,8 +20,8 @@ def matrix_sqrt(A, numIters=100):
 
     normA = torch.linalg.matrix_norm(A, keepdim=True)
     err = normA + 1.0
-    I = torch.eye(*A.shape[-2:], dtype=A.dtype)
-    Z = torch.eye(*A.shape[-2:], dtype=A.dtype).expand_as(A)
+    I = torch.eye(*A.shape[-2:], dtype=A.dtype, device=A.device)
+    Z = torch.eye(*A.shape[-2:], dtype=A.dtype, device=A.device).expand_as(A)
     Y = A / normA
     for i in range(numIters):
         T = 0.5*(3.0*I - Z@Y)
@@ -126,7 +126,7 @@ class LSPGenerator:
 
         s = torch.normal(mean=0.0, std=1.0, size=[self._scenario.batch_size,
             self._scenario.num_bs, self._scenario.num_ut, 7], generator=self.rng,
-            dtype=self._scenario._dtype_real)
+            dtype=self._scenario._dtype_real, device=self._scenario.device)
 
         ## Applyting cross-LSP correlation
         s = torch.unsqueeze(s, axis=4)
@@ -210,7 +210,7 @@ class LSPGenerator:
         # The following 7 LSPs are correlated:
         # DS, ASA, ASD, SF, K, ZSA, ZSD
         # We create the correlation matrix initialized to the identity matrix
-        cross_lsp_corr_mat = torch.eye(7, 7, dtype=self._scenario._dtype_real)
+        cross_lsp_corr_mat = torch.eye(7, 7, dtype=self._scenario._dtype_real, device=self._scenario.device)
         cross_lsp_corr_mat = torch.tile(cross_lsp_corr_mat[None,None,None], (self._scenario.batch_size,self._scenario.num_bs,self._scenario.num_ut,1,1))
 
         # Internal function that adds to the correlation matrix ``mat``
@@ -219,9 +219,9 @@ class LSPGenerator:
         def _add_param(mat, parameter_name, m, n):
             # Mask to put the parameters in the right spot of the 7x7
             # correlation matrix
-            indices = torch.tensor([[m,n],[n,m]])
-            mask = torch.zeros((7,7), dtype=self._scenario._dtype_real)
-            mask[indices[:, 0], indices[:, 1]] = torch.tensor([1.0, 1.0], dtype=self._scenario._dtype_real)
+            indices = torch.tensor([[m,n],[n,m]], device=self._scenario.device)
+            mask = torch.zeros((7,7), dtype=self._scenario._dtype_real, device=self._scenario.device)
+            mask[indices[:, 0], indices[:, 1]] = torch.tensor([1.0, 1.0], dtype=self._scenario._dtype_real, device=self._scenario.device)
             mask = torch.reshape(mask, [1,1,1,7,7])
             # Get the parameter value according to the link scenario
             update = self._scenario.get_param(parameter_name).type(self._scenario._dtype_real)
@@ -335,7 +335,7 @@ class LSPGenerator:
             # For each pair of UTs, the entry is set to 0 if the UTs are in
             # different states, -1/(correlation distance) otherwise.
             # The correlation distance is different for each LSP.
-            filtering_matrix = torch.eye(self._scenario.num_ut, self._scenario.num_ut, dtype=self._scenario._dtype_real)
+            filtering_matrix = torch.eye(self._scenario.num_ut, self._scenario.num_ut, dtype=self._scenario._dtype_real, device=self._scenario.device)
             filtering_matrix = torch.tile(filtering_matrix[None,None], (self._scenario.batch_size,self._scenario.num_bs,1,1))
             distance_scaling_matrix = self._scenario.get_param(parameter_name).type(self._scenario._dtype_real)
             distance_scaling_matrix = torch.tile(torch.unsqueeze(

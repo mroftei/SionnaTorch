@@ -6,6 +6,7 @@
 Class for sampling channel impulse responses following 3GPP TR38.901
 specifications and giving LSPs and rays.
 """
+from typing import Optional
 import torch
 import scipy.constants
 
@@ -79,28 +80,30 @@ class ChannelCoefficientsGenerator:
     def __init__(self,  carrier_frequency,
                         subclustering,
                         rng: torch.Generator,
-                        dtype=torch.complex64):
+                        dtype=torch.complex64,
+                        device: Optional[torch.device] = None):
         
         assert dtype.is_complex, "'dtype' must be complex type"
         self._dtype = dtype
         self._dtype_real = dtype.to_real()
+        self.device = device
 
         self.rng = rng
         # Wavelength (m)
-        self._lambda_0 = torch.tensor(scipy.constants.c/carrier_frequency, dtype=self._dtype_real)
+        self._lambda_0 = torch.tensor(scipy.constants.c/carrier_frequency, dtype=self._dtype_real, device=device)
         self._subclustering = subclustering
 
         # Sub-cluster information for intra cluster delay spread clusters
         # This is hardcoded from Table 7.5-5
-        self._sub_cl_1_ind = torch.tensor([0,1,2,3,4,5,6,7,18,19], dtype=torch.int32)
-        self._sub_cl_2_ind = torch.tensor([8,9,10,11,16,17], dtype=torch.int32)
-        self._sub_cl_3_ind = torch.tensor([12,13,14,15], dtype=torch.int32)
-        self._sub_cl_delay_offsets = torch.tensor([0, 1.28, 2.56], dtype=self._dtype_real)
+        self._sub_cl_1_ind = torch.tensor([0,1,2,3,4,5,6,7,18,19], dtype=torch.int32, device=device)
+        self._sub_cl_2_ind = torch.tensor([8,9,10,11,16,17], dtype=torch.int32, device=device)
+        self._sub_cl_3_ind = torch.tensor([12,13,14,15], dtype=torch.int32, device=device)
+        self._sub_cl_delay_offsets = torch.tensor([0, 1.28, 2.56], dtype=self._dtype_real, device=device)
 
     def __call__(self, num_time_samples, sampling_frequency, k_factor, rays,
                  scenario, c_ds=None, debug=False):
         # Sample times
-        sample_times = (torch.arange(num_time_samples, dtype=self._dtype_real)/sampling_frequency)
+        sample_times = (torch.arange(num_time_samples, dtype=self._dtype_real, device=self.device)/sampling_frequency)
 
         # Step 10
         phi = self._step_10(rays.aoa.shape)
@@ -239,9 +242,9 @@ class ChannelCoefficientsGenerator:
         rho_hat = self._unit_sphere_vector(theta, phi)
         rot_inv = self._reverse_rotation_matrix(orientations)
         rot_rho = torch.matmul(rot_inv, rho_hat)
-        v1 = torch.tensor([0.,0.,1.], dtype=self._dtype_real)
+        v1 = torch.tensor([0.,0.,1.], dtype=self._dtype_real, device=self.device)
         v1 = torch.reshape(v1, [1]*(len(rot_rho.shape)-1)+[3])
-        v2 = torch.tensor([1+0j,1j,0], dtype=self._dtype)
+        v2 = torch.tensor([1+0j,1j,0], dtype=self._dtype, device=self.device)
         v2 = torch.reshape(v2, [1]*(len(rot_rho.shape)-1)+[3])
         z = torch.matmul(v1, rot_rho)
         z = torch.clip(z, -1.0, 1.0)
@@ -332,13 +335,13 @@ class ChannelCoefficientsGenerator:
         """
         # Get BS orientations got broadcasting
         if scenario.direction == "uplink":
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real) # [batch size, number of UTs, 3]
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real, device=self.device) # [batch size, number of UTs, 3]
         else:
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real) # [batch size, number of BSs, 3]
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real, device=self.device) # [batch size, number of BSs, 3]
         tx_orientations = torch.unsqueeze(tx_orientations, 2)
 
         # Get antenna element positions in LCS and reshape for broadcasting
-        tx_ant_pos_lcs = torch.tensor([[0.,0.,0.]], dtype=self._dtype_real)
+        tx_ant_pos_lcs = torch.tensor([[0.,0.,0.]], dtype=self._dtype_real, device=self.device)
         tx_ant_pos_lcs = torch.reshape(tx_ant_pos_lcs, (1,1,*tx_ant_pos_lcs.shape,1))
 
         # Compute antenna element positions in GCS
@@ -365,13 +368,13 @@ class ChannelCoefficientsGenerator:
         """
         # Get UT orientations got broadcasting
         if scenario.direction == "uplink":
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real) # [batch size, number of BSs, 3]
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, dtype=scenario._dtype_real, device=self.device) # [batch size, number of BSs, 3]
         else:
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real) # [batch size, number of UTs, 3]
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, dtype=scenario._dtype_real, device=self.device) # [batch size, number of UTs, 3]
         rx_orientations = torch.unsqueeze(rx_orientations, 2)
 
         # Get antenna element positions in LCS and reshape for broadcasting
-        rx_ant_pos_lcs = torch.tensor([[0.,0.,0.]], dtype=self._dtype_real)
+        rx_ant_pos_lcs = torch.tensor([[0.,0.,0.]], dtype=self._dtype_real, device=self.device)
         rx_ant_pos_lcs = torch.reshape(rx_ant_pos_lcs, (1,1,*rx_ant_pos_lcs.shape,1))
 
         # Compute antenna element positions in GCS
@@ -397,7 +400,7 @@ class ChannelCoefficientsGenerator:
         phi : [shape] + [4], float
             Phases for all polarization combinations
         """
-        phi = torch.rand(shape+(4,), generator=self.rng, dtype=self._dtype_real)
+        phi = torch.rand(shape+(4,), generator=self.rng, dtype=self._dtype_real, device=self.device)
         (-torch.pi - torch.pi) * phi + torch.pi
 
         return phi
@@ -597,11 +600,11 @@ class ChannelCoefficientsGenerator:
         """
 
         if scenario.direction == "uplink":
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3) # [batch size, number of UTs, 3]
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3) # [batch size, number of BSs, 3]
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
         else:
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3) # [batch size, number of UTs, 3]
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3) # [batch size, number of BSs, 3]
+            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
+            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
 
         # Transform departure angles to the LCS
         shape = tx_orientations.shape[:2] + (1,1,1) + tx_orientations.shape[-1:]
@@ -612,8 +615,8 @@ class ChannelCoefficientsGenerator:
 
         # Compute transmitted and received field strength for all antennas
         # in the LCS  and convert to GCS
-        f_tx_pol1_prime = torch.stack([torch.ones_like(zod, dtype=self._dtype_real), torch.zeros_like(aod, dtype=self._dtype_real)], axis=-1) # Unity antenna
-        f_rx_pol1_prime = torch.stack([torch.ones_like(zoa, dtype=self._dtype_real), torch.zeros_like(aoa, dtype=self._dtype_real)], axis=-1) # Unity antenna
+        f_tx_pol1_prime = torch.stack([torch.ones_like(zod, dtype=self._dtype_real, device=self.device), torch.zeros_like(aod, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
+        f_rx_pol1_prime = torch.stack([torch.ones_like(zoa, dtype=self._dtype_real, device=self.device), torch.zeros_like(aoa, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
 
         f_tx_pol1 = self._l2g_response(f_tx_pol1_prime, tx_orientations,
             zod, aod)
@@ -796,7 +799,7 @@ class ChannelCoefficientsGenerator:
         zod = torch.unsqueeze(torch.unsqueeze(zod, dim=3), dim=4)
 
         # Field matrix
-        h_phase = torch.reshape(torch.tensor([[1.,0.],[0.,-1.]]).type(self._dtype),[1,1,1,1,1,2,2])
+        h_phase = torch.reshape(torch.tensor([[1.,0.],[0.,-1.]], dtype=self._dtype, device=self.device),[1,1,1,1,1,2,2])
         h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, h_phase)
 
         # Array offset matrix

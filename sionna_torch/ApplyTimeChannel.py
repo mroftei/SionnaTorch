@@ -4,6 +4,7 @@
 #
 """Layer for applying channel responses to channel inputs in the time domain"""
 
+from typing import Optional
 import torch
 import numpy as np
 import scipy
@@ -92,8 +93,9 @@ class ApplyTimeChannel():
         ``l_tot``.
     """
 
-    def __init__(self, num_time_samples, l_tot, rng:torch.Generator, add_awgn=True):
+    def __init__(self, num_time_samples, l_tot, rng:torch.Generator, add_awgn=True, device: Optional[torch.device] = None):
         self.rng = rng
+        self.device = device
         self._add_awgn = add_awgn
 
         # The channel transfert function is implemented by first gathering from
@@ -126,7 +128,7 @@ class ApplyTimeChannel():
         first_colum = np.concatenate([  np.arange(0, num_time_samples),
                                         np.full([l_tot-1], num_time_samples)])
         first_row = np.concatenate([[0], np.full([l_tot-1], num_time_samples)])
-        self._g = torch.from_numpy(scipy.linalg.toeplitz(first_colum, first_row))
+        self._g = torch.from_numpy(scipy.linalg.toeplitz(first_colum, first_row)).to(device)
 
     def __call__(self, x, h_time, no=1e-14):
         # Preparing the channel input for broadcasting and matrix multiplication
@@ -147,8 +149,8 @@ class ApplyTimeChannel():
             stddev = np.sqrt(1.0/2.0) # Half the variance for each dimension
 
             # Generate complex Gaussian noise with the right variance
-            xr = torch.normal(mean=0.0, std=stddev, size=y.shape, generator=self.rng, dtype=torch.float32)
-            xi = torch.normal(mean=0.0, std=stddev, size=y.shape, generator=self.rng, dtype=torch.float32)
+            xr = torch.normal(mean=0.0, std=stddev, size=y.shape, generator=self.rng, dtype=torch.float32, device=self.device)
+            xi = torch.normal(mean=0.0, std=stddev, size=y.shape, generator=self.rng, dtype=torch.float32, device=self.device)
             noise = xr + 1j*xi
 
             # Apply variance scaling

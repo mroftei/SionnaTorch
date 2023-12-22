@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from typing import Any
+from typing import Any, Optional
 import torch
 import numpy as np
 import scipy.constants
@@ -28,14 +28,15 @@ class SionnaScenario:
                  bw: float = 30e3,
                  noise_power = 1e-9,
                  seed: int = 42,
-                 dtype=torch.complex64
+                 dtype=torch.complex64,
+                 device: Optional[torch.device] = None,
             ) -> None:
         
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
         self.bw = bw
         self.noise_power = noise_power
-        self.rng = rng = torch.Generator().manual_seed(seed)
+        self.rng = rng = torch.Generator(device=device).manual_seed(seed)
         self.average_street_width = 20.0
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
@@ -47,14 +48,15 @@ class SionnaScenario:
         assert dtype.is_complex, "'dtype' must be complex type"
         self._dtype = dtype
         self._dtype_real = dtype.to_real()
+        self.device = device
 
         self.l_min, self.l_max = -6, int(np.ceil(3e-6*self.bw)) + 6
         l_tot = self.l_max-self.l_min+1
 
-        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng)
+        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
         self._lsp_sampler = LSPGenerator(self, rng)
         self._ray_sampler = RaysGenerator(self, rng)
-        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True)
+        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
 
         self.update_topology(ut_xy, bs_xy, urban_state, ut_velocities, los_requested)
         
@@ -66,17 +68,17 @@ class SionnaScenario:
                         ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
                         los_requested: np.ndarray = None):
         # set_topology
-        self.ut_xy = torch.from_numpy(ut_xy)
+        self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
-        self.bs_xy = torch.from_numpy(bs_xy)
-        self.is_urban = torch.from_numpy(urban_state)
+        self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
+        self.is_urban = torch.from_numpy(urban_state).to(self.device)
         self.los_requested = los_requested
         self.batch_size = self.ut_xy.shape[0]
         self.num_ut = self.ut_xy.shape[1]
         self.num_bs = self.bs_xy.shape[1]
         self.h_bs = self.bs_xy[:,:,2]
         if ut_velocities is None:
-            self.ut_velocities = torch.zeros_like(self.ut_xy)
+            self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
             self.ut_velocities = ut_velocities
 
@@ -151,7 +153,7 @@ class SionnaScenario:
         tau = torch.tile(tau, [1, 1, 1, 1, h.shape[4], 1,1])
 
         # Time lags for which to compute the channel taps
-        l = torch.arange(self.l_min, self.l_max+1, dtype=torch.float32)
+        l = torch.arange(self.l_min, self.l_max+1, dtype=torch.float32, device=self.device)
 
         # sinc pulse shaping
         g = torch.sinc(l-tau*self.bw) + 0.0j # L dims should be at end
@@ -193,7 +195,7 @@ class SionnaScenario:
 
         fc = self.f_c/1e9
         if fc < 6.:
-            fc = np.where(self.is_urban, 6.0, fc)
+            fc = torch.where(self.is_urban, 6.0, fc)
 
         # Parameter value
         if parameter_name in ('muDS', 'sigmaDS', 'muASD', 'sigmaASD', 'muASA',
@@ -201,43 +203,43 @@ class SionnaScenario:
             pa_los = PARAMS_LOS_URBAN[parameter_name + 'a']
             pb_los = PARAMS_LOS_URBAN[parameter_name + 'b']
             pc_los = PARAMS_LOS_URBAN[parameter_name + 'c']
-            parameter_value_los_urban = pa_los*np.log10(pb_los+fc) + pc_los
+            parameter_value_los_urban = pa_los*torch.log10(pb_los+fc) + pc_los
 
             pa_nlos = PARAMS_NLOS_URBAN[parameter_name + 'a']
             pb_nlos = PARAMS_NLOS_URBAN[parameter_name + 'b']
             pc_nlos = PARAMS_NLOS_URBAN[parameter_name + 'c']
-            parameter_value_nlos_urban = pa_nlos*np.log10(pb_nlos+fc) + pc_nlos
+            parameter_value_nlos_urban = pa_nlos*torch.log10(pb_nlos+fc) + pc_nlos
 
             pa_los = PARAMS_LOS_RURAL[parameter_name + 'a']
             pb_los = PARAMS_LOS_RURAL[parameter_name + 'b']
             pc_los = PARAMS_LOS_RURAL[parameter_name + 'c']
-            parameter_value_los_rural = pa_los*np.log10(pb_los+fc) + pc_los
+            parameter_value_los_rural = pa_los*torch.log10(pb_los+fc) + pc_los
 
             pa_nlos = PARAMS_NLOS_RURAL[parameter_name + 'a']
             pb_nlos = PARAMS_NLOS_RURAL[parameter_name + 'b']
             pc_nlos = PARAMS_NLOS_RURAL[parameter_name + 'c']
-            parameter_value_nlos_rural = pa_nlos*np.log10(pb_nlos+fc) + pc_nlos
+            parameter_value_nlos_rural = pa_nlos*torch.log10(pb_nlos+fc) + pc_nlos
 
         elif parameter_name == "cDS":
-            pa_los = PARAMS_LOS_URBAN[parameter_name + 'a']
-            pb_los = PARAMS_LOS_URBAN[parameter_name + 'b']
-            pc_los = PARAMS_LOS_URBAN[parameter_name + 'c']
-            parameter_value_los_urban = np.maximum(pa_los, pb_los - pc_los*np.log10(fc))
+            pa_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'a'], device=self.device)
+            pb_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'b'], device=self.device)
+            pc_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'c'], device=self.device)
+            parameter_value_los_urban = torch.maximum(pa_los, pb_los - pc_los*torch.log10(fc))
 
-            pa_nlos = PARAMS_NLOS_URBAN[parameter_name + 'a']
-            pb_nlos = PARAMS_NLOS_URBAN[parameter_name + 'b']
-            pc_nlos = PARAMS_NLOS_URBAN[parameter_name + 'c']
-            parameter_value_nlos_urban = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(fc))
+            pa_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'a'], device=self.device)
+            pb_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'b'], device=self.device)
+            pc_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'c'], device=self.device)
+            parameter_value_nlos_urban = torch.maximum(pa_nlos, pb_nlos - pc_nlos*torch.log10(fc))
 
-            pa_los = PARAMS_LOS_RURAL[parameter_name + 'a']
-            pb_los = PARAMS_LOS_RURAL[parameter_name + 'b']
-            pc_los = PARAMS_LOS_RURAL[parameter_name + 'c']
-            parameter_value_los_rural = np.maximum(pa_los, pb_los - pc_los*np.log10(fc))
+            pa_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'a'], device=self.device)
+            pb_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'b'], device=self.device)
+            pc_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'c'], device=self.device)
+            parameter_value_los_rural = torch.maximum(pa_los, pb_los - pc_los*torch.log10(fc))
 
-            pa_nlos = PARAMS_NLOS_RURAL[parameter_name + 'a']
-            pb_nlos = PARAMS_NLOS_RURAL[parameter_name + 'b']
-            pc_nlos = PARAMS_NLOS_RURAL[parameter_name + 'c']
-            parameter_value_nlos_rural = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(fc))
+            pa_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'a'], device=self.device)
+            pb_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'b'], device=self.device)
+            pc_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'c'], device=self.device)
+            parameter_value_nlos_rural = torch.maximum(pa_nlos, pb_nlos - pc_nlos*torch.log10(fc))
 
         else:
             parameter_value_los_urban = PARAMS_LOS_URBAN[parameter_name]
@@ -245,11 +247,11 @@ class SionnaScenario:
             parameter_value_los_rural = PARAMS_LOS_RURAL[parameter_name]
             parameter_value_nlos_rural = PARAMS_NLOS_RURAL[parameter_name]
 
-        parameter_value_los = np.where(self.is_urban, parameter_value_los_urban, parameter_value_los_rural)
-        parameter_value_nlos = np.where(self.is_urban, parameter_value_nlos_urban, parameter_value_nlos_rural)
-        parameter_tensor = np.where(self.is_los, parameter_value_los, parameter_value_nlos)
+        parameter_value_los = torch.where(self.is_urban, parameter_value_los_urban, parameter_value_los_rural)
+        parameter_value_nlos = torch.where(self.is_urban, parameter_value_nlos_urban, parameter_value_nlos_rural)
+        parameter_tensor = torch.where(self.is_los, parameter_value_los, parameter_value_nlos)
 
-        return torch.from_numpy(parameter_tensor).type(self._dtype_real)
+        return parameter_tensor.type(self._dtype_real).to(self.device)
 
     def _compute_distance_2d_3d_and_angles(self):
         r"""
@@ -318,10 +320,10 @@ class SionnaScenario:
         rural_los_probability = torch.where(torch.less(self.distance_2d, 10.0), 1.0, rural_los_probability)
 
         self.los_probability = torch.where(self.is_urban, urban_los_probability, rural_los_probability)
-        los = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real)
+        los = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real, device=self.device)
 
         if self.los_requested is not None:
-            return torch.ones_like(self.distance_2d, dtype=bool) * self.los_requested
+            return torch.ones_like(self.distance_2d, dtype=bool, device=self.device) * self.los_requested
         return torch.less(los, self.los_probability)
     
     def _compute_lsp_log_mean_std(self):
@@ -337,7 +339,7 @@ class SionnaScenario:
         # ASA
         log_mean_asa = self.get_param("muASA")
         # SF.  Has zero-mean.
-        log_mean_sf = torch.zeros([self.batch_size, self.num_bs, self.num_ut], dtype=self._dtype_real)
+        log_mean_sf = torch.zeros([self.batch_size, self.num_bs, self.num_ut], dtype=self._dtype_real, device=self.device)
         # K.  Given in dB in the 3GPP tables, hence the division by 10
         log_mean_k = self.get_param("muK")/10.0
         # ZSA
@@ -422,7 +424,7 @@ class SionnaScenario:
         c = g*torch.pow((h_ut-13.)/10., 1.5)
         c = torch.where(torch.less(h_ut, 13.), 0.0, c)
         p = 1./(1.+c)
-        r = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real)
+        r = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real, device=self.device)
         r = torch.where(torch.less(r, p), 1.0, 0.0)
 
         max_value = h_ut- 1.5
@@ -430,7 +432,7 @@ class SionnaScenario:
         # are not scalar. The following commented would therefore not work.
         # Therefore, for now, we just sample from a continuous
         # distribution.
-        s = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real)
+        s = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real, device=self.device)
         s = (12.0 - max_value) * s + max_value
         # Itc could happen that h_ut = 13m, and therefore max_value < 13m
         s = torch.where(torch.less(s, 12.0), 12.0, s)
@@ -445,7 +447,7 @@ class SionnaScenario:
         # Urban
         pl_1 = 28.0 + 22.0*torch.log10(self.distance_3d) + 20.0*np.log10(self.f_c/1e9)
         pl_2 = (28.0 + 40.0*torch.log10(self.distance_3d) + 20.0*np.log10(self.f_c/1e9)
-         - 9.0*torch.log10(np.square(urban_distance_breakpoint)+torch.square(h_bs-h_ut)))
+         - 9.0*torch.log10(torch.square(urban_distance_breakpoint)+torch.square(h_bs-h_ut)))
         urban_pl_los = torch.where(torch.less(self.distance_2d, urban_distance_breakpoint),
             pl_1, pl_2)
         # Rural
