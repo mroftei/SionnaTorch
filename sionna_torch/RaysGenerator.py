@@ -111,20 +111,16 @@ class RaysGenerator:
                                             lsp.k_factor, delays_unscaled)
 
         # Sample AoA
-        aoa = self._azimuth_angles_of_arrival(lsp.asa, lsp.k_factor,
-                                                powers_for_angles_gen)
+        aoa = self._azimuth_angles(lsp.asa, lsp.k_factor, powers_for_angles_gen, 'aoa')
 
         # Sample AoD
-        aod = self._azimuth_angles_of_departure(lsp.asd, lsp.k_factor,
-                                                powers_for_angles_gen)
+        aod = self._azimuth_angles(lsp.asd, lsp.k_factor, powers_for_angles_gen, 'aod')
 
         # Sample ZoA
-        zoa = self._zenith_angles_of_arrival(lsp.zsa, lsp.k_factor,
-                                                powers_for_angles_gen)
+        zoa = self._zenith_angles(lsp.zsa, lsp.k_factor, powers_for_angles_gen, 'zoa')
 
         # Sample ZoD
-        zod = self._zenith_angles_of_departure(lsp.zsd, lsp.k_factor,
-                                                powers_for_angles_gen)
+        zod = self._zenith_angles(lsp.zsd, lsp.k_factor, powers_for_angles_gen, 'zod')
 
         # XPRs
         xpr = self._cross_polarization_power_ratios()
@@ -411,58 +407,6 @@ class RaysGenerator:
 
         return azimuth_angles.type(self._scenario._dtype_real)
 
-    def _azimuth_angles_of_arrival(self, azimuth_spread_arrival,
-                                   rician_k_factor, cluster_powers):
-        # pylint: disable=line-too-long
-        """
-        Compute the azimuth angle of arrival (AoA)
-        See step 7 of section 7.5 from TR 38.901 specification.
-
-        Input
-        ------
-        azimuth_spread_arrival : [batch size, num of BSs, num of UTs], 
-            Azimuth angle spread of arrival (ASA) [deg]
-
-        rician_k_factor : [batch size, num of BSs, num of UTs], 
-            Rician K-factor of each BS-UT link. Used only for LoS links.
-
-        cluster_powers : [batch size, num of BSs, num of UTs, maximum number of clusters], 
-            Normalized path powers
-
-        Output
-        -------
-        aoa : [batch size, num of BSs, num of UTs, maximum number of clusters, number of rays], 
-            Paths azimuth angles of arrival (AoA) wrapped within (-180,180) [degree]
-        """
-        return self._azimuth_angles(azimuth_spread_arrival,
-                                    rician_k_factor, cluster_powers, 'aoa')
-
-    def _azimuth_angles_of_departure(self, azimuth_spread_departure,
-                                     rician_k_factor, cluster_powers):
-        # pylint: disable=line-too-long
-        """
-        Compute the azimuth angle of departure (AoD)
-        See step 7 of section 7.5 from TR 38.901 specification.
-
-        Input
-        ------
-        azimuth_spread_departure : [batch size, num of BSs, num of UTs], 
-            Azimuth angle spread of departure (ASD) [deg]
-
-        rician_k_factor : [batch size, num of BSs, num of UTs], 
-            Rician K-factor of each BS-UT link. Used only for LoS links.
-
-        cluster_powers : [batch size, num of BSs, num of UTs, maximum number of clusters], 
-            Normalized path powers
-
-        Output
-        -------
-        aod : [batch size, num of BSs, num of UTs, maximum number of clusters, number of rays], 
-            Paths azimuth angles of departure (AoD) wrapped within (-180,180) [degree]
-        """
-        return self._azimuth_angles(azimuth_spread_departure,
-                                    rician_k_factor, cluster_powers, 'aod')
-
     def _zenith_angles(self, zenith_spread, rician_k_factor, cluster_powers,
                        angle_type):
         # pylint: disable=line-too-long
@@ -574,58 +518,6 @@ class RaysGenerator:
             360.-zenith_angles, zenith_angles)
 
         return zenith_angles
-
-    def _zenith_angles_of_arrival(self, zenith_spread_arrival, rician_k_factor,
-        cluster_powers):
-        # pylint: disable=line-too-long
-        """
-        Compute the zenith angle of arrival (ZoA)
-        See step 7 of section 7.5 from TR 38.901 specification.
-
-        Input
-        ------
-        zenith_spread_arrival : [batch size, num of BSs, num of UTs], 
-            Zenith angle spread of arrival (ZSA) [deg]
-
-        rician_k_factor : [batch size, num of BSs, num of UTs], 
-            Rician K-factor of each BS-UT link. Used only for LoS links.
-
-        cluster_powers : [batch size, num of BSs, num of UTs, maximum number of clusters], 
-            Normalized path powers
-
-        Output
-        -------
-        zoa : [batch size, num of BSs, num of UTs, maximum number of clusters, number of rays], 
-            Paths zenith angles of arrival (ZoA) wrapped within (0,180) [degree]
-        """
-        return self._zenith_angles(zenith_spread_arrival, rician_k_factor,
-                                   cluster_powers, 'zoa')
-
-    def _zenith_angles_of_departure(self, zenith_spread_departure,
-                                    rician_k_factor, cluster_powers):
-        # pylint: disable=line-too-long
-        """
-        Compute the zenith angle of departure (ZoD)
-        See step 7 of section 7.5 from TR 38.901 specification.
-
-        Input
-        ------
-        zenith_spread_departure : [batch size, num of BSs, num of UTs], 
-            Zenith angle spread of departure (ZSD) [deg]
-
-        rician_k_factor : [batch size, num of BSs, num of UTs], 
-            Rician K-factor of each BS-UT link. Used only for LoS links.
-
-        cluster_powers : [batch size, num of BSs, num of UTs, maximum number of clusters], 
-            Normalized path powers
-
-        Output
-        -------
-        zod : [batch size, num of BSs, num of UTs, maximum number of clusters, number of rays], 
-            Paths zenith angles of departure (ZoD) wrapped within (0,180) [degree]
-        """
-        return self._zenith_angles(zenith_spread_departure, rician_k_factor,
-                                   cluster_powers, 'zod')
 
     def _shuffle_angles(self, angles):
         # pylint: disable=line-too-long
