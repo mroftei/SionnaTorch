@@ -1,3 +1,8 @@
+#
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+
 from typing import Any
 import torch
 import numpy as np
@@ -14,9 +19,10 @@ class SionnaScenario:
     def __init__(self, 
                  ut_xy: np.ndarray, #[batch size,num_ut, 3]
                  bs_xy: np.ndarray, #[batch size,num_bs, 3]
-                #  ut_velocities: np.ndarray #[batch size,num_ut, 3]
                  urban_state: np.ndarray, #[batch size,num_bs]
+                 ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
                  los_requested: np.ndarray = None,
+                 direction: str = "uplink", #uplink/downlink
                  n_time_samples: int = 1024,
                  f_c: float = .92e9,
                  bw: float = 30e3,
@@ -33,7 +39,7 @@ class SionnaScenario:
         self.average_street_width = 20.0
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
-        self.direction = "uplink" #uplink/downlink
+        self.direction = direction #uplink/downlink
         self.n_samples = n_time_samples
         self.los_requested = los_requested
 
@@ -50,16 +56,29 @@ class SionnaScenario:
         self._ray_sampler = RaysGenerator(self, rng)
         self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True)
 
+        self.update_topology(ut_xy, bs_xy, urban_state, ut_velocities, los_requested)
+        
+
+    def update_topology(self,
+                        ut_xy: np.ndarray, #[batch size,num_ut, 3],
+                        bs_xy: np.ndarray, #[batch size,num_bs, 3]
+                        urban_state: np.ndarray, #[batch size,num_bs]
+                        ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
+                        los_requested: np.ndarray = None):
         # set_topology
         self.ut_xy = torch.from_numpy(ut_xy)
         self.h_ut = self.ut_xy[:,:,2]
         self.bs_xy = torch.from_numpy(bs_xy)
-        self.h_bs = self.bs_xy[:,:,2]
-        self.ut_velocities = torch.zeros_like(self.ut_xy)
         self.is_urban = torch.from_numpy(urban_state)
+        self.los_requested = los_requested
         self.batch_size = self.ut_xy.shape[0]
         self.num_ut = self.ut_xy.shape[1]
         self.num_bs = self.bs_xy.shape[1]
+        self.h_bs = self.bs_xy[:,:,2]
+        if ut_velocities is None:
+            self.ut_velocities = torch.zeros_like(self.ut_xy)
+        else:
+            self.ut_velocities = ut_velocities
 
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
@@ -77,9 +96,9 @@ class SionnaScenario:
         # Update the ray sampler
         self.num_clusters_max = int(self.get_param("numClusters").max())
         self._ray_sampler.topology_updated_callback()
-
         
-    def __call__(self, x: np.ndarray, ) -> Any:
+        
+    def __call__(self, x: torch.Tensor) -> Any:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
 
         # Sample LSPs 
@@ -120,21 +139,15 @@ class SionnaScenario:
                                       lsp.k_factor, rays, self, c_ds)
 
         # Step 12 (path loss and shadow fading)
-        pl_db = self.basic_pathloss
-        # lsp.sf = torch.ones_like(lsp.sf)
-        gain = torch.pow(10.0, -(pl_db)/20.)*torch.sqrt(lsp.sf)
+        gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(lsp.sf)
         gain = gain[(...,)+(None,)*(len(h.shape)-len(gain.shape))]
         h *= gain + 0.0j
 
         ## cir_to_time_channel 
         # Reshaping to match the expected output
-        h = torch.permute(h, [0, 2, 4, 1, 5, 3, 6])
-        h = h[...,None]
-        tau = torch.permute(tau, [0, 2, 1, 3])
-        tau = tau[:,:,None,:,None,:,None,None]
-        # Expand dims to broadcast with h. Add the following dimensions:
-        #  - number of rx antennas (2)
-        #  - number of tx antennas (4)
+        h = torch.permute(h, [0, 2, 4, 1, 5, 3, 6])[...,None]
+        tau = torch.permute(tau, [0, 2, 1, 3])[:,:,None,:,None,:,None,None]
+        # Expand dims to broadcast with h.
         tau = torch.tile(tau, [1, 1, 1, 1, h.shape[4], 1,1])
 
         # Time lags for which to compute the channel taps
