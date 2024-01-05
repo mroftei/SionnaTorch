@@ -19,7 +19,7 @@ class SionnaScenario:
     def __init__(self, 
                  ut_xy: np.ndarray, #[batch size,num_ut, 3]
                  bs_xy: np.ndarray, #[batch size,num_bs, 3]
-                 urban_state: np.ndarray, #[batch size,num_bs]
+                 map: np.ndarray, #[batch size,num_bs]
                  ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
                  los_requested: np.ndarray = None,
                  direction: str = "uplink", #uplink/downlink
@@ -58,20 +58,20 @@ class SionnaScenario:
         self._ray_sampler = RaysGenerator(self, rng)
         self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
 
-        self.update_topology(ut_xy, bs_xy, urban_state, ut_velocities, los_requested)
+        self.update_topology(ut_xy, bs_xy, map, ut_velocities, los_requested)
         
 
     def update_topology(self,
                         ut_xy: np.ndarray, #[batch size,num_ut, 3],
                         bs_xy: np.ndarray, #[batch size,num_bs, 3]
-                        urban_state: np.ndarray, #[batch size,num_bs]
+                        map: np.ndarray, #[batch size,num_bs]
                         ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
                         los_requested: np.ndarray = None):
         # set_topology
         self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
         self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
-        self.is_urban = torch.from_numpy(urban_state).to(self.device)
+        self.map = torch.from_numpy(map).to(self.device)
         self.los_requested = los_requested
         self.batch_size = self.ut_xy.shape[0]
         self.num_ut = self.ut_xy.shape[1]
@@ -304,6 +304,38 @@ class SionnaScenario:
                                                        axis=3))
         self.matrix_ut_distance_2d = matrix_ut_distance_2d
 
+        ## Terrain distance calculations
+        max_dist = max(self.map.shape)
+        steps = torch.arange(max_dist, dtype=torch.float32, device=self.device) / (max_dist - 1)
+
+        steps = steps[None,None,None,:,None]
+
+        delta_loc_xy = self.ut_xy[:,None,:,None,:2] - self.bs_xy[:,:,None,None,:2]
+        dist_vector = steps*delta_loc_xy
+        xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
+        xy_vectors = xy_vectors.int()
+        dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
+
+        zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
+
+        # Filter out small changes in terrain
+        n = 7 # filter size
+        trans_filt = zi.flatten(0,-2)[:,None].float()
+        trans_filt = torch.nn.functional.pad(trans_filt, (0,n-1), 'replicate')
+        kernel = torch.ones((1,1,n), dtype=torch.float, device=self.device)/n
+        trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
+        trans_filt = trans_filt.reshape_as(zi).round().int()
+        terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
+        terrain_transitions[...,0] = True
+        terrain_transitions[...,-1] = True
+
+        terrain_transitions_mask = torch.any(terrain_transitions.flatten(0,-2), 0)
+
+        self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
+        self.is_urban = self.terrain_is_urban[...,-1]
+        self.distances = dist_vector[...,terrain_transitions_mask]
+
+
     def _compute_los(self):
         # urban
         c = torch.pow(torch.abs(self.h_ut-13.)/10., 1.5)
@@ -414,17 +446,17 @@ class SionnaScenario:
     
     def _compute_pathloss_basic(self):
         r"""Computes the basic component of the pathloss [dB]"""
-        h_bs = torch.unsqueeze(self.h_bs, dim=2) # For broadcasting
-        h_ut = torch.unsqueeze(self.h_ut, dim=1) # For broadcasting
+        h_ut = self.h_ut[:,None,:,None] # For broadcasting
+        h_bs = self.h_bs[:,:,None,None] # For broadcasting
 
         # Beak point distance
-        g = ((5./4.)*torch.pow(self.distance_2d/100., 3.)
-            *torch.exp(-self.distance_2d/150.0))
-        g = torch.where(torch.less_equal(self.distance_2d, 18.0), 0.0, g)
+        g = ((5./4.)*torch.pow(self.distances/100., 3.)
+            *torch.exp(-self.distances/150.0))
+        g = torch.where(torch.less_equal(self.distances, 18.0), 0.0, g)
         c = g*torch.pow((h_ut-13.)/10., 1.5)
         c = torch.where(torch.less(h_ut, 13.), 0.0, c)
         p = 1./(1.+c)
-        r = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real, device=self.device)
+        r = torch.rand([self.batch_size, self.num_bs, self.num_ut, 1], generator=self.rng, dtype=self._dtype_real, device=self.device)
         r = torch.where(torch.less(r, p), 1.0, 0.0)
 
         max_value = h_ut- 1.5
@@ -432,7 +464,7 @@ class SionnaScenario:
         # are not scalar. The following commented would therefore not work.
         # Therefore, for now, we just sample from a continuous
         # distribution.
-        s = torch.rand([self.batch_size, self.num_bs, self.num_ut], generator=self.rng, dtype=self._dtype_real, device=self.device)
+        s = torch.rand([self.batch_size, self.num_bs, self.num_ut, 1], generator=self.rng, dtype=self._dtype_real, device=self.device)
         s = (12.0 - max_value) * s + max_value
         # Itc could happen that h_ut = 13m, and therefore max_value < 13m
         s = torch.where(torch.less(s, 12.0), 12.0, s)
@@ -445,31 +477,31 @@ class SionnaScenario:
 
         ## Basic path loss for LoS
         # Urban
-        pl_1 = 28.0 + 22.0*torch.log10(self.distance_3d) + 20.0*np.log10(self.f_c/1e9)
-        pl_2 = (28.0 + 40.0*torch.log10(self.distance_3d) + 20.0*np.log10(self.f_c/1e9)
+        pl_1 = 28.0 + 22.0*torch.log10(self.distances) + 20.0*np.log10(self.f_c/1e9)
+        pl_2 = (28.0 + 40.0*torch.log10(self.distances) + 20.0*np.log10(self.f_c/1e9)
          - 9.0*torch.log10(torch.square(urban_distance_breakpoint)+torch.square(h_bs-h_ut)))
-        urban_pl_los = torch.where(torch.less(self.distance_2d, urban_distance_breakpoint),
+        urban_pl_los = torch.where(torch.less(self.distances, urban_distance_breakpoint),
             pl_1, pl_2)
         # Rural
-        pl_1 = (20.0*torch.log10(40.0*torch.pi*self.distance_3d*self.f_c/3e9)
+        pl_1 = (20.0*torch.log10(40.0*torch.pi*self.distances*self.f_c/3e9)
             + np.minimum(0.03*np.power(self.average_building_height,1.72),
-                10.0)*torch.log10(self.distance_3d)
+                10.0)*torch.log10(self.distances)
             - np.minimum(0.044*np.power(self.average_building_height,1.72),
                 14.77)
-            + 0.002*np.log10(self.average_building_height)*self.distance_3d)
+            + 0.002*np.log10(self.average_building_height)*self.distances)
         pl_2 = (20.0*torch.log10(40.0*torch.pi*rural_distance_breakpoint*self.f_c/3e9)
             + np.minimum(0.03*np.power(self.average_building_height,1.72),
                 10.0)*torch.log10(rural_distance_breakpoint)
             - np.minimum(0.044*np.power(self.average_building_height,1.72),
                 14.77)
             + 0.002*np.log10(self.average_building_height)*rural_distance_breakpoint
-            + 40.0*torch.log10(self.distance_3d/rural_distance_breakpoint))
-        rural_pl_los = torch.where(torch.less(self.distance_2d, rural_distance_breakpoint),
+            + 40.0*torch.log10(self.distances/rural_distance_breakpoint))
+        rural_pl_los = torch.where(torch.less(self.distances, rural_distance_breakpoint),
             pl_1, pl_2)
 
         ## Basic pathloss for NLoS and O2I
         # Urban
-        pl_3 = (13.54 + 39.08*torch.log10(self.distance_3d) + 20.0*np.log10(self.f_c/1e9)
+        pl_3 = (13.54 + 39.08*torch.log10(self.distances) + 20.0*np.log10(self.f_c/1e9)
             - 0.6*(h_ut-1.5))
         urban_pl_nlos = torch.maximum(urban_pl_los, pl_3)
         # Rural
@@ -477,17 +509,26 @@ class SionnaScenario:
                 + 7.5*np.log10(self.average_building_height)
                 - (24.37 - 3.7*torch.square(self.average_building_height/h_bs))
                 *torch.log10(h_bs)
-                + (43.42 - 3.1*torch.log10(h_bs))*(torch.log10(self.distance_3d)-3.0)
+                + (43.42 - 3.1*torch.log10(h_bs))*(torch.log10(self.distances)-3.0)
                 + 20.0*np.log10(self.f_c/1e9) - (3.2*torch.square(torch.log10(11.75*h_ut))
                 - 4.97))
         rural_pl_nlos = torch.maximum(rural_pl_los, pl_3)
 
         ## Set the basic pathloss according to UT state
-        # Expand to allow broadcasting with the BS dimension
         # LoS
-        urban_pl_b = torch.where(self.is_los, urban_pl_los, urban_pl_nlos)
-        rural_pl_b = torch.where(self.is_los, rural_pl_los, rural_pl_nlos)
-        pl_b = torch.where(self.is_urban, urban_pl_b, rural_pl_b)
+        urban_pl_b = torch.where(self.is_los[...,None], urban_pl_los, urban_pl_nlos)
+        rural_pl_b = torch.where(self.is_los[...,None], rural_pl_los, rural_pl_nlos)
+
+        # Terrain change contributions
+        urban_pl_lin = 10**(urban_pl_b/10)
+        rural_pl_lin = 10**(rural_pl_b/10)
+        rural_pl_diff = torch.diff(rural_pl_lin)
+        rural_pl_diff[...,0] += rural_pl_lin[...,0]
+        urban_pl_diff = torch.diff(urban_pl_lin)
+        urban_pl_diff[...,0] += urban_pl_lin[...,0]
+        pl_b = torch.where(self.terrain_is_urban[...,1:], urban_pl_diff, rural_pl_diff)
+        pl_b = torch.sum(pl_b, -1)
+        pl_b = 10*torch.log10(pl_b)
 
         if self.direction == 'uplink':
             pl_b = torch.permute(pl_b, [0,2,1])

@@ -56,6 +56,9 @@ class TestLSP(unittest.TestCase):
     MAX_ERR_PATHLOSS_MEAN = 1.0
     MAX_ERR_PATHLOSS_STD = 1e-1
 
+    # Map square resolution
+    MAP_RES = 2000
+
     def limited_normal(self, batch_size, minval, maxval, mu, std):
         r"""
         Return a limited normal distribution. This is different from a truncated
@@ -88,12 +91,6 @@ class TestLSP(unittest.TestCase):
         batch_size = TestLSP.BATCH_SIZE
         nb_ut = TestLSP.NB_UT
 
-        # The following quantities have no impact on LSP
-        # However,these are needed to instantiate the model
-        ut_orientations = torch.zeros([batch_size, nb_ut], dtype=torch.float64).numpy()
-        bs_orientations = torch.zeros([batch_size, nb_ut], dtype=torch.float64).numpy()
-        ut_velocities = torch.zeros([batch_size, nb_ut], dtype=torch.float64).numpy()
-
         # LSPs, ZoD offset, pathlosses
         TestLSP.lsp_samples = {}
         TestLSP.zod_offset = {}
@@ -103,8 +100,8 @@ class TestLSP(unittest.TestCase):
         ut_loc = generate_random_loc(
             batch_size,
             nb_ut,
-            (100, 2000),
-            (100, 2000),
+            (100, TestLSP.MAP_RES),
+            (100, TestLSP.MAP_RES),
             (h_ut, h_ut),
             share_loc=True,
             dtype=torch.float64,
@@ -123,16 +120,16 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["rma"] = {}
         TestLSP.zod_offset["rma"] = {}
         TestLSP.pathlosses["rma"] = {}
-        is_urban = np.zeros([batch_size, nb_bs, nb_ut], dtype=bool)
+        scen_map = np.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
         TestLSP.lsp_samples["rma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["rma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
         TestLSP.lsp_samples["rma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["nlos"] = scenario.zod_offset
         TestLSP.pathlosses["rma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
@@ -145,16 +142,16 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["uma"] = {}
         TestLSP.zod_offset["uma"] = {}
         TestLSP.pathlosses["uma"] = {}
-        is_urban = np.ones([batch_size, nb_bs, nb_ut], dtype=bool)
+        scen_map = np.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
         TestLSP.lsp_samples["uma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["uma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
         TestLSP.lsp_samples["uma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["nlos"] = scenario.zod_offset
         TestLSP.pathlosses["uma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))

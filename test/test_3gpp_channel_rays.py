@@ -31,6 +31,9 @@ class TestRays(unittest.TestCase):
     # Heigh of BSs
     H_BS = 35.0
 
+    # Map square resolution
+    MAP_RES = 2000
+
     def setUpClass():
         r"""Sample rays from all LoS and NLoS channel models for testing"""
 
@@ -43,14 +46,8 @@ class TestRays(unittest.TestCase):
         batch_size = TestRays.BATCH_SIZE
         fc = TestRays.CARRIER_FREQUENCY
 
-        # The following quantities have no impact on the rays, but are
-        # required to instantiate models
-        ut_orientations = torch.empty((batch_size, 1, 3), dtype=torch.float64).uniform_(-np.pi, np.pi).numpy()
-        bs_orientations = torch.empty((batch_size, 1, 3), dtype=torch.float64).uniform_(-np.pi, np.pi).numpy()
-        ut_velocities = torch.empty((batch_size, 1, 3), dtype=torch.float64).uniform_(-1.0, 1.0).numpy()
-
         # 1 UT and 1 BS
-        ut_loc = generate_random_loc(batch_size, 1, (100,2000), (100,2000),
+        ut_loc = generate_random_loc(batch_size, 1, (100,TestRays.MAP_RES), (100,TestRays.MAP_RES),
                                         (1.5, 1.5), share_loc=True,
                                         dtype=torch.float64)
         bs_loc = generate_random_loc(batch_size, 1, (0,100), (0,100),
@@ -102,7 +99,7 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['rma'] = {}
         TestRays.los_zod['rma'] = {}
         TestRays.mu_log_zsd['rma'] = {}
-        is_urban = np.zeros([batch_size, 1, 1], dtype=bool)
+        scen_map = np.zeros([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
         # scenario = RMaScenario(fc, "downlink", rng=rng, dtype=torch.complex128)
         # ray_sampler = RaysGenerator(scenario, rng=rng)
 
@@ -111,7 +108,7 @@ class TestRays(unittest.TestCase):
         #                                     ut_velocities, los=True)
         # ray_sampler.topology_updated_callback()
         # rays = ray_sampler(lsp)
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
         rays = scenario._ray_sampler(lsp)
         TestRays.delays['rma']['los'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['rma']['los'] = torch.squeeze(rays.powers).numpy()
@@ -132,7 +129,7 @@ class TestRays(unittest.TestCase):
         #                                     ut_velocities, los=False)
         # ray_sampler.topology_updated_callback()
         # rays = ray_sampler(lsp)
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
         rays = scenario._ray_sampler(lsp)
         TestRays.delays['rma']['nlos'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['rma']['nlos'] = torch.squeeze(rays.powers).numpy()
@@ -162,7 +159,7 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['uma'] = {}
         TestRays.los_zod['uma'] = {}
         TestRays.mu_log_zsd['uma'] = {}
-        is_urban = np.ones([batch_size, 1, 1], dtype=bool)
+        scen_map = np.ones([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
         # scenario = UMaScenario(  fc, "downlink", rng=rng, dtype=torch.complex128)
         # ray_sampler = RaysGenerator(scenario, rng=rng)
 
@@ -171,7 +168,7 @@ class TestRays(unittest.TestCase):
         #                                     ut_velocities, los=True)
         # ray_sampler.topology_updated_callback()
         # rays = ray_sampler(lsp)
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
         rays = scenario._ray_sampler(lsp)
         TestRays.delays['uma']['los'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['uma']['los'] = torch.squeeze(rays.powers).numpy()
@@ -192,7 +189,7 @@ class TestRays(unittest.TestCase):
         #                                     ut_velocities, los=False)
         # ray_sampler.topology_updated_callback()
         # rays = ray_sampler(lsp)
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
         rays = scenario._ray_sampler(lsp)
         TestRays.delays['uma']['nlos'] = torch.squeeze(rays.delays).numpy()
         TestRays.powers['uma']['nlos'] = torch.squeeze(rays.powers).numpy()
