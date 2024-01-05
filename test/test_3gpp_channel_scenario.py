@@ -34,6 +34,9 @@ class TestScenario(unittest.TestCase):
     # Number of UT
     NB_UT = 10
 
+    # Map square resolution
+    MAP_RES = 2000
+
     def setUpClass():
 
         # Forcing the seed to make the tests deterministic
@@ -49,17 +52,15 @@ class TestScenario(unittest.TestCase):
         h_ut = TestScenario.H_UT
         h_bs = TestScenario.H_BS
 
-        # The following quantities have no impact on LSP
-        # However,these are needed to instantiate the model
         # ut_velocities = np.zeros([batch_size, nb_ut])
-        TestScenario.is_urban = np.zeros([batch_size, 1, nb_ut], dtype=bool)
+        scen_map = np.zeros([TestScenario.MAP_RES, TestScenario.MAP_RES], dtype=int)
 
-        ut_loc = generate_random_loc(batch_size, nb_ut, (100,2000),
-                                     (100,2000), (h_ut, h_ut))
+        ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestScenario.MAP_RES),
+                                     (100,TestScenario.MAP_RES), (h_ut, h_ut))
         bs_loc = generate_random_loc(batch_size, nb_bs, (0,100),
                                             (0,100), (h_bs, h_bs))
 
-        TestScenario.scenario = SionnaScenario(ut_loc, bs_loc, TestScenario.is_urban, 
+        TestScenario.scenario = SionnaScenario(ut_loc, bs_loc, scen_map, 
             f_c=fc, seed=seed)
 
     def test_dist(self):

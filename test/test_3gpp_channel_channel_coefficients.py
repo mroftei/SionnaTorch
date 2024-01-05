@@ -42,6 +42,9 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
     # Sampling frequency
     SAMPLING_FREQUENCY = 20e6
 
+    # Map square resolution
+    MAP_RES = 2000
+
     def setUpClass():
         dev = torch.device('cpu') 
 
@@ -70,15 +73,15 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         # rx_orientations = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # tx_orientations = torch.empty((batch_size, nb_bs, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # ut_velocities = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 5.0)
-        is_urban = np.zeros([batch_size, 1, nb_ut], dtype=bool)
+        scen_map = np.zeros([TestChannelCoefficientsGenerator.MAP_RES, TestChannelCoefficientsGenerator.MAP_RES], dtype=int)
 
-        ut_loc = generate_random_loc(batch_size, nb_ut, (100,2000),
-                                     (100,2000), (h_ut, h_ut), dtype=torch.float64)
+        ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestChannelCoefficientsGenerator.MAP_RES),
+                                     (100,TestChannelCoefficientsGenerator.MAP_RES), (h_ut, h_ut), dtype=torch.float64)
         bs_loc = generate_random_loc(batch_size, nb_bs, (0,100),
                                             (0,100), (h_bs, h_bs),
                                             dtype=torch.float64)
 
-        scenario = SionnaScenario(ut_loc, bs_loc, is_urban, f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
+        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
         TestChannelCoefficientsGenerator.scenario = scenario
 
         lsp_sampler = LSPGenerator(scenario, rng=rng)
