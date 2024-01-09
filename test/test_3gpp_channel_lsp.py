@@ -123,13 +123,15 @@ class TestLSP(unittest.TestCase):
         scen_map = np.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=True)
         TestLSP.lsp_samples["rma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["rma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=False)
         TestLSP.lsp_samples["rma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["nlos"] = scenario.zod_offset
         TestLSP.pathlosses["rma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
@@ -145,13 +147,15 @@ class TestLSP(unittest.TestCase):
         scen_map = np.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=True, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=True)
         TestLSP.lsp_samples["uma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["uma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, los_requested=False, f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=False)
         TestLSP.lsp_samples["uma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["nlos"] = scenario.zod_offset
         TestLSP.pathlosses["uma"]["nlos"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))

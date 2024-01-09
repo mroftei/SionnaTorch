@@ -60,8 +60,8 @@ class TestScenario(unittest.TestCase):
         bs_loc = generate_random_loc(batch_size, nb_bs, (0,100),
                                             (0,100), (h_bs, h_bs))
 
-        TestScenario.scenario = SionnaScenario(ut_loc, bs_loc, scen_map, 
-            f_c=fc, seed=seed)
+        TestScenario.scenario = SionnaScenario(f_c=fc, seed=seed)
+        TestScenario.scenario.update_topology(ut_loc, bs_loc, scen_map)
 
     def test_dist(self):
         """Test calculation of distances (total, in, and out)"""

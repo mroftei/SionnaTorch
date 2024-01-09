@@ -81,7 +81,8 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                             (0,100), (h_bs, h_bs),
                                             dtype=torch.float64)
 
-        scenario = SionnaScenario(ut_loc, bs_loc, scen_map, f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
+        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
+        scenario.update_topology(ut_loc, bs_loc, scen_map)
         TestChannelCoefficientsGenerator.scenario = scenario
 
         lsp_sampler = LSPGenerator(scenario, rng=rng)
