@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 import torch
 import numpy as np
 import scipy.constants
@@ -16,13 +16,7 @@ from .Parameters import PARAMS_LOS_RURAL, PARAMS_LOS_URBAN, PARAMS_NLOS_RURAL, P
 
 
 class SionnaScenario:
-    def __init__(self, 
-                 ut_xy: np.ndarray, #[batch size,num_ut, 3]
-                 bs_xy: np.ndarray, #[batch size,num_bs, 3]
-                 map: np.ndarray, #[batch size,num_bs]
-                 ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
-                 los_requested: np.ndarray = None,
-                 direction: str = "uplink", #uplink/downlink
+    def __init__(self,
                  n_time_samples: int = 1024,
                  f_c: float = .92e9,
                  bw: float = 30e3,
@@ -30,7 +24,7 @@ class SionnaScenario:
                  seed: int = 42,
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
-            ) -> None:
+    ) -> None:
         
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
@@ -40,9 +34,7 @@ class SionnaScenario:
         self.average_street_width = 20.0
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
-        self.direction = direction #uplink/downlink
         self.n_samples = n_time_samples
-        self.los_requested = los_requested
 
         # data type
         assert dtype.is_complex, "'dtype' must be complex type"
@@ -57,8 +49,6 @@ class SionnaScenario:
         self._lsp_sampler = LSPGenerator(self, rng)
         self._ray_sampler = RaysGenerator(self, rng)
         self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
-
-        self.update_topology(ut_xy, bs_xy, map, ut_velocities, los_requested)
         
 
     def update_topology(self,
@@ -66,13 +56,16 @@ class SionnaScenario:
                         bs_xy: np.ndarray, #[batch size,num_bs, 3]
                         map: np.ndarray, #[batch size,num_bs]
                         ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
-                        los_requested: np.ndarray = None):
+                        los_requested: np.ndarray = None,
+                        direction: str = "uplink" #uplink/downlink
+    ) -> None:
         # set_topology
         self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
         self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
         self.map = torch.from_numpy(map).to(self.device)
         self.los_requested = los_requested
+        self.direction = direction #uplink/downlink
         self.batch_size = self.ut_xy.shape[0]
         self.num_ut = self.ut_xy.shape[1]
         self.num_bs = self.bs_xy.shape[1]
@@ -100,8 +93,9 @@ class SionnaScenario:
         self._ray_sampler.topology_updated_callback()
         
         
-    def __call__(self, x: torch.Tensor) -> Any:
+    def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
+        assert self.ut_xy is not None, "Call update_topology before applying channel"
 
         # Sample LSPs 
         lsp = self._lsp_sampler()
