@@ -61,12 +61,13 @@ class TestScenario(unittest.TestCase):
                                             (0,100), (h_bs, h_bs))
 
         TestScenario.scenario = SionnaScenario(f_c=fc, seed=seed)
-        TestScenario.scenario.update_topology(ut_loc, bs_loc, scen_map)
+        TestScenario.scenario.update_topology(ut_loc, bs_loc, scen_map, map_resolution=20.0)
 
     def test_dist(self):
         """Test calculation of distances (total, in, and out)"""
         d_3d = self.scenario.distance_3d.numpy()
         d_2d = self.scenario.distance_2d.numpy()
+        d_vect = self.scenario.distances.numpy()[...,-1]
         # Checking total 3D distances
         ut_loc = self.scenario.ut_xy.numpy()
         bs_loc = self.scenario.bs_xy.numpy()
@@ -82,6 +83,9 @@ class TestScenario(unittest.TestCase):
         ut_loc = np.expand_dims(ut_loc, axis=1)
         d_2d_ref = np.sqrt(np.sum(np.square(ut_loc[:,:,:,:2]-bs_loc[:,:,:,:2]), axis=3))
         max_err = np.max(np.abs(d_2d - d_2d_ref)/d_2d_ref)
+        self.assertLessEqual(max_err, TestScenario.MAX_ERR)
+        # Check distance vector calculation
+        max_err = np.max(np.abs(d_vect - d_2d_ref)/d_2d_ref)
         self.assertLessEqual(max_err, TestScenario.MAX_ERR)
 
     def test_get_param(self):
