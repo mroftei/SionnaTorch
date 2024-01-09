@@ -52,18 +52,20 @@ class SionnaScenario:
         
 
     def update_topology(self,
-                        ut_xy: np.ndarray, #[batch size,num_ut, 3],
-                        bs_xy: np.ndarray, #[batch size,num_bs, 3]
-                        map: np.ndarray, #[batch size,num_bs]
+                        ut_xy: np.ndarray, #[batch size,num_ut, 3] in map pixels
+                        bs_xy: np.ndarray, #[batch size,num_bs, 3] in map pixels
+                        map: np.ndarray, #[batch size,num_bs] terrain class at each pixel
+                        map_resolution: float = 1.0, # map pixels to meters conversion factor
                         ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
                         los_requested: np.ndarray = None,
                         direction: str = "uplink" #uplink/downlink
     ) -> None:
         # set_topology
-        self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
+        self.ut_xy = torch.from_numpy(ut_xy).to(self.device) * map_resolution
         self.h_ut = self.ut_xy[:,:,2]
-        self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
+        self.bs_xy = torch.from_numpy(bs_xy).to(self.device) * map_resolution
         self.map = torch.from_numpy(map).to(self.device)
+        self.map_resolution = map_resolution
         self.los_requested = los_requested
         self.direction = direction #uplink/downlink
         self.batch_size = self.ut_xy.shape[0]
@@ -73,7 +75,7 @@ class SionnaScenario:
         if ut_velocities is None:
             self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
-            self.ut_velocities = ut_velocities
+            self.ut_velocities = torch.from_numpy(ut_velocities).to(self.device) * map_resolution
 
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
@@ -299,7 +301,7 @@ class SionnaScenario:
         self.matrix_ut_distance_2d = matrix_ut_distance_2d
 
         ## Terrain distance calculations
-        max_dist = max(self.map.shape)
+        max_dist = max(self.map.shape) * self.map_resolution
         steps = torch.arange(max_dist, dtype=torch.float32, device=self.device) / (max_dist - 1)
 
         steps = steps[None,None,None,:,None]
@@ -307,7 +309,7 @@ class SionnaScenario:
         delta_loc_xy = self.ut_xy[:,None,:,None,:2] - self.bs_xy[:,:,None,None,:2]
         dist_vector = steps*delta_loc_xy
         xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
-        xy_vectors = xy_vectors.int()
+        xy_vectors = (xy_vectors/self.map_resolution).int()
         dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
 
         zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
