@@ -20,7 +20,7 @@ class SionnaScenario:
                  n_time_samples: int = 1024,
                  f_c: float = .92e9,
                  bw: float = 30e3,
-                 noise_power = 1e-9,
+                 noise_power = None,
                  seed: int = 42,
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
@@ -29,7 +29,6 @@ class SionnaScenario:
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
         self.bw = bw
-        self.noise_power = noise_power
         self.rng = rng = torch.Generator(device=device).manual_seed(seed)
         self.average_street_width = 20.0
         self.average_building_height = 5.0
@@ -44,6 +43,11 @@ class SionnaScenario:
 
         self.l_min, self.l_max = -6, int(np.ceil(3e-6*self.bw)) + 6
         l_tot = self.l_max-self.l_min+1
+
+        if noise_power is not None:
+            self.noise_power = noise_power
+        else:
+            self.noise_power = -173.8 + 10 * np.log10(bw)
 
         self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
         self._lsp_sampler = LSPGenerator(self, rng)
