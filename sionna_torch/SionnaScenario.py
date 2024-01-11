@@ -174,7 +174,7 @@ class SionnaScenario:
         #                     axis=(2,4,5), keepdims=True)
         #     c = np.sqrt(c) + 0.0j
         #     hm = math.divide_no_nan(hm, c)
-        y_torch, snr = self._apply_channel(x, h_T, self.noise_power)
+        y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin)
 
         return y_torch, snr
 
