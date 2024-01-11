@@ -20,7 +20,7 @@ class SionnaScenario:
                  n_time_samples: int = 1024,
                  f_c: float = .92e9,
                  bw: float = 30e3,
-                 noise_power = None,
+                 noise_power_dB = None,
                  seed: int = 42,
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
@@ -44,10 +44,10 @@ class SionnaScenario:
         self.l_min, self.l_max = -6, int(np.ceil(3e-6*self.bw)) + 6
         l_tot = self.l_max-self.l_min+1
 
-        if noise_power is not None:
-            self.noise_power = noise_power
+        if noise_power_dB is not None:
+            self.noise_power_lin = 10**(noise_power_dB/10)
         else:
-            self.noise_power = -173.8 + 10 * np.log10(bw)
+            self.noise_power_lin = 10**((-173.8 + 10 * np.log10(bw))/10)
 
         self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
         self._lsp_sampler = LSPGenerator(self, rng)
