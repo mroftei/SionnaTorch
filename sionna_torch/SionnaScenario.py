@@ -65,17 +65,19 @@ class SionnaScenario:
                         direction: str = "uplink" #uplink/downlink
     ) -> None:
         # set_topology
-        self.ut_xy = torch.from_numpy(ut_xy).to(self.device) * map_resolution
+        self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
-        self.bs_xy = torch.from_numpy(bs_xy).to(self.device) * map_resolution
+        self.ut_xy[:,:,:2] = self.ut_xy[:,:,:2] * map_resolution
+        self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
+        self.h_bs = self.bs_xy[:,:,2]
+        self.bs_xy[:,:,:2] = self.bs_xy[:,:,:2] * map_resolution
+        self.num_ut = self.ut_xy.shape[1]
+        self.num_bs = self.bs_xy.shape[1]
         self.map = torch.from_numpy(map).to(self.device)
         self.map_resolution = map_resolution
         self.los_requested = los_requested
         self.direction = direction #uplink/downlink
         self.batch_size = self.ut_xy.shape[0]
-        self.num_ut = self.ut_xy.shape[1]
-        self.num_bs = self.bs_xy.shape[1]
-        self.h_bs = self.bs_xy[:,:,2]
         if ut_velocities is None:
             self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
