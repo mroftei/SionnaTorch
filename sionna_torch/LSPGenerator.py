@@ -1,6 +1,6 @@
 import torch
 
-def matrix_sqrt(A, numIters=100):
+def matrix_sqrt_ns(A, numIters=100):
     """ Newton-Schulz iterations method to get matrix square root.
     Page 231, Eq 2.6b
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.6.8799&rep=rep1&type=pdf
@@ -43,6 +43,19 @@ def matrix_sqrt(A, numIters=100):
     sA = Y*torch.sqrt(normA)
     
     return sA
+
+def matrix_sqrt_eig(A):
+    """Compute the square root of a Symmetric or Hermitian positive definite matrix or batch of matrices.
+    Eigen-decomposition is used to determine the matrix square root ($A^(1/2)=Q\Lambda^{1/2}Q^T$)
+    
+    Mathematical source: https://rich-d-wilkinson.github.io/MATH3030/3.2-spectraleigen-decomposition.html#matrixroots
+    Code source: https://github.com/pytorch/pytorch/issues/25481#issuecomment-1032789228
+    """
+    L, Q = torch.linalg.eigh(A)
+    zero = torch.zeros((), device=L.device, dtype=L.dtype)
+    threshold = L.max(-1).values * L.size(-1) * torch.finfo(L.dtype).eps
+    L = L.where(L > threshold.unsqueeze(-1), zero)  # zero out small components
+    return (Q * L.sqrt().unsqueeze(-2)) @ Q.mH
 
 class LSP:
     r"""
@@ -276,7 +289,7 @@ class LSPGenerator:
 
         # Compute and store the square root of the cross-LSP correlation
         # matrix
-        self._cross_lsp_correlation_matrix_sqrt = matrix_sqrt(
+        self._cross_lsp_correlation_matrix_sqrt = matrix_sqrt_eig(
                 cross_lsp_corr_mat)
 
     def _compute_lsp_spatial_correlation_sqrt(self):
@@ -361,6 +374,6 @@ class LSPGenerator:
             ut_dist_2d*distance_scaling_matrices)*filtering_matrices)
 
         # Compute and store the square root of the spatial correlation matrix
-        self._spatial_lsp_correlation_matrix_sqrt = matrix_sqrt(
+        self._spatial_lsp_correlation_matrix_sqrt = matrix_sqrt_eig(
                 spatial_lsp_correlation)
         
