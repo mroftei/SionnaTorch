@@ -100,6 +100,8 @@ class ChannelCoefficientsGenerator:
         self._sub_cl_3_ind = torch.tensor([12,13,14,15], dtype=torch.int32, device=device)
         self._sub_cl_delay_offsets = torch.tensor([0, 1.28, 2.56], dtype=self._dtype_real, device=device)
 
+        self.los_h_phase = torch.tensor([[1.+0j,0.+0j],[0.+0j,-1.+0j]], dtype=self._dtype, device=self.device)
+
     def __call__(self, num_time_samples, sampling_frequency, k_factor, rays,
                  scenario, c_ds=None, debug=False):
         # Sample times
@@ -799,8 +801,7 @@ class ChannelCoefficientsGenerator:
         zod = torch.unsqueeze(torch.unsqueeze(zod, dim=3), dim=4)
 
         # Field matrix
-        h_phase = torch.reshape(torch.tensor([[1.,0.],[0.,-1.]], dtype=self._dtype, device=self.device),[1,1,1,1,1,2,2])
-        h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, h_phase)
+        h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, self.los_h_phase)
 
         # Array offset matrix
         h_array = self._step_11_array_offsets(scenario, aoa, aod, zoa, zod)
