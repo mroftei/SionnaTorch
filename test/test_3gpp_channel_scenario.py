@@ -5,7 +5,8 @@
 
 import unittest
 import numpy as np
-from channel_test_utils import *
+import torch
+from channel_test_utils import generate_random_loc
 from sionna_torch.SionnaScenario import SionnaScenario
 
 class TestScenario(unittest.TestCase):
@@ -53,14 +54,14 @@ class TestScenario(unittest.TestCase):
         h_bs = TestScenario.H_BS
 
         # ut_velocities = np.zeros([batch_size, nb_ut])
-        scen_map = np.zeros([TestScenario.MAP_RES, TestScenario.MAP_RES], dtype=int)
+        scen_map = np.ones([TestScenario.MAP_RES, TestScenario.MAP_RES], dtype=int)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestScenario.MAP_RES),
                                      (100,TestScenario.MAP_RES), (h_ut, h_ut))
         bs_loc = generate_random_loc(batch_size, nb_bs, (0,100),
                                             (0,100), (h_bs, h_bs))
 
-        TestScenario.scenario = SionnaScenario(f_c=fc, seed=seed)
+        TestScenario.scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed)
         TestScenario.scenario.update_topology(ut_loc, bs_loc, scen_map, map_resolution=20.0)
 
     def test_dist(self):
@@ -95,9 +96,9 @@ class TestScenario(unittest.TestCase):
                                         TestScenario.NB_BS, TestScenario.NB_UT])
         los_index = np.where(self.scenario.is_los.numpy())
         nlos_index = np.where(np.logical_not(self.scenario.is_los.numpy()))
-        param_tensor_ref[los_index] = -7.49
-        param_tensor_ref[nlos_index] = -7.43
+        param_tensor_ref[los_index] = 2.5
+        param_tensor_ref[nlos_index] = 2.3
         #
-        param_tensor = TestScenario.scenario.get_param('muDSc').numpy()
+        param_tensor = TestScenario.scenario.get_param('rTau').numpy()
         max_err = np.max(np.abs(param_tensor-param_tensor_ref))
         self.assertLessEqual(max_err, 1e-6)

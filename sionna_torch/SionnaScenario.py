@@ -12,11 +12,14 @@ from .ChannelCoefficients import ChannelCoefficientsGenerator
 from .LSPGenerator import LSPGenerator
 from .RaysGenerator import RaysGenerator
 from .ApplyTimeChannel import ApplyTimeChannel
-from .Parameters import PARAMS_LOS_RURAL, PARAMS_LOS_URBAN, PARAMS_NLOS_RURAL, PARAMS_NLOS_URBAN
+from .Parameters import PARAMS_IDX, PARAMS_LOS_RURAL, PARAMS_LOS_URBAN, PARAMS_NLOS_RURAL, PARAMS_NLOS_URBAN
 
 
 class SionnaScenario:
     def __init__(self,
+                 n_bs=1,
+                 n_ut=1,
+                 batch_size=1,
                  n_time_samples: int = 1024,
                  f_c: float = .92e9,
                  bw: float = 30e3,
@@ -25,7 +28,9 @@ class SionnaScenario:
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
     ) -> None:
-        
+        self.batch_size = batch_size
+        self.num_bs = n_bs
+        self.num_ut = n_ut
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
         self.bw = bw
@@ -54,7 +59,8 @@ class SionnaScenario:
         self._ray_sampler = RaysGenerator(self, rng)
         self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
         
-
+        self.load_params() # Load all parameters in to device tensors
+        
     def update_topology(self,
                         ut_xy: np.ndarray, #[batch size,num_ut, 3] in map pixels
                         bs_xy: np.ndarray, #[batch size,num_bs, 3] in map pixels
@@ -71,8 +77,9 @@ class SionnaScenario:
         self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
         self.h_bs = self.bs_xy[:,:,2]
         self.bs_xy[:,:,:2] = self.bs_xy[:,:,:2] * map_resolution
-        self.num_ut = self.ut_xy.shape[1]
-        self.num_bs = self.bs_xy.shape[1]
+        assert self.num_ut == self.ut_xy.shape[1]
+        assert self.num_bs == self.bs_xy.shape[1]
+        assert self.batch_size == self.bs_xy.shape[0]
         self.map = torch.from_numpy(map).to(self.device)
         self.map_resolution = map_resolution
         self.los_requested = los_requested
@@ -86,6 +93,7 @@ class SionnaScenario:
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
         self.is_los = self._compute_los()
+        self.param_list = self.init_param_list()
 
         # Compute the LSPs means and stds
         self.lsp_log_mean, self.lsp_log_std, self.zod_offset = self._compute_lsp_log_mean_std()
@@ -177,6 +185,68 @@ class SionnaScenario:
         y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin)
 
         return y_torch, snr
+    
+    def load_params(self):
+        fc = self.f_c/1e9
+        fc_urban = 6.0 if fc/1e9 < 6 else fc
+
+        self.param_list_los_urban = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_nlos_urban = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_los_rural = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_nlos_rural = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+
+        for k, list_idx in PARAMS_IDX.items():
+            if k in ('muDS', 'sigmaDS', 'muASD', 'sigmaASD', 'muASA',
+                                'sigmaASA', 'muZSA', 'sigmaZSA'):
+                pa_los = PARAMS_LOS_URBAN[k + 'a']
+                pb_los = PARAMS_LOS_URBAN[k + 'b']
+                pc_los = PARAMS_LOS_URBAN[k + 'c']
+                self.param_list_los_urban[...,list_idx] = pa_los*np.log10(pb_los+fc_urban) + pc_los
+
+                pa_nlos = PARAMS_NLOS_URBAN[k + 'a']
+                pb_nlos = PARAMS_NLOS_URBAN[k + 'b']
+                pc_nlos = PARAMS_NLOS_URBAN[k + 'c']
+                self.param_list_nlos_urban[...,list_idx] = pa_nlos*np.log10(pb_nlos+fc_urban) + pc_nlos
+
+                pa_los = PARAMS_LOS_RURAL[k + 'a']
+                pb_los = PARAMS_LOS_RURAL[k + 'b']
+                pc_los = PARAMS_LOS_RURAL[k + 'c']
+                self.param_list_los_rural[...,list_idx] = pa_los*np.log10(pb_los+fc) + pc_los
+
+                pa_nlos = PARAMS_NLOS_RURAL[k + 'a']
+                pb_nlos = PARAMS_NLOS_RURAL[k + 'b']
+                pc_nlos = PARAMS_NLOS_RURAL[k + 'c']
+                self.param_list_nlos_rural[...,list_idx] = pa_nlos*np.log10(pb_nlos+fc) + pc_nlos
+            elif k == "cDS":
+                pa_los = PARAMS_LOS_URBAN['cDSa']
+                pb_los = PARAMS_LOS_URBAN['cDSb']
+                pc_los = PARAMS_LOS_URBAN['cDSc']
+                self.param_list_los_urban[...,list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(fc_urban))
+
+                pa_nlos = PARAMS_NLOS_URBAN['cDSa']
+                pb_nlos = PARAMS_NLOS_URBAN['cDSb']
+                pc_nlos = PARAMS_NLOS_URBAN['cDSc']
+                self.param_list_nlos_urban[...,list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(fc_urban))
+
+                pa_los = PARAMS_LOS_RURAL['cDSa']
+                pb_los = PARAMS_LOS_RURAL['cDSb']
+                pc_los = PARAMS_LOS_RURAL['cDSc']
+                self.param_list_los_rural[...,list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(self.f_c/1e9))
+
+                pa_nlos = PARAMS_NLOS_RURAL['cDSa']
+                pb_nlos = PARAMS_NLOS_RURAL['cDSb']
+                pc_nlos = PARAMS_NLOS_RURAL['cDSc']
+                self.param_list_nlos_rural[...,list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(self.f_c/1e9))
+            else:
+                self.param_list_los_urban[...,list_idx] = PARAMS_LOS_URBAN[k]
+                self.param_list_nlos_urban[...,list_idx] = PARAMS_NLOS_URBAN[k]
+                self.param_list_los_rural[...,list_idx] = PARAMS_LOS_RURAL[k]
+                self.param_list_nlos_rural[...,list_idx] = PARAMS_NLOS_RURAL[k]
+    
+    def init_param_list(self):
+        parameter_value_los = torch.where(self.is_urban[...,None], self.param_list_los_urban, self.param_list_los_rural)
+        parameter_value_nlos = torch.where(self.is_urban[...,None], self.param_list_nlos_urban, self.param_list_nlos_rural)
+        return torch.where(self.is_los[...,None], parameter_value_los, parameter_value_nlos)
 
     def get_param(self, parameter_name):
         r"""
@@ -194,66 +264,7 @@ class SionnaScenario:
         : [batch size, number of BSs, number of UTs], float
             Parameter value for each BS-UT link
         """
-
-        fc = self.f_c/1e9
-        if fc < 6.:
-            fc = torch.where(self.is_urban, 6.0, fc)
-
-        # Parameter value
-        if parameter_name in ('muDS', 'sigmaDS', 'muASD', 'sigmaASD', 'muASA',
-                                'sigmaASA', 'muZSA', 'sigmaZSA'):
-            pa_los = PARAMS_LOS_URBAN[parameter_name + 'a']
-            pb_los = PARAMS_LOS_URBAN[parameter_name + 'b']
-            pc_los = PARAMS_LOS_URBAN[parameter_name + 'c']
-            parameter_value_los_urban = pa_los*torch.log10(pb_los+fc) + pc_los
-
-            pa_nlos = PARAMS_NLOS_URBAN[parameter_name + 'a']
-            pb_nlos = PARAMS_NLOS_URBAN[parameter_name + 'b']
-            pc_nlos = PARAMS_NLOS_URBAN[parameter_name + 'c']
-            parameter_value_nlos_urban = pa_nlos*torch.log10(pb_nlos+fc) + pc_nlos
-
-            pa_los = PARAMS_LOS_RURAL[parameter_name + 'a']
-            pb_los = PARAMS_LOS_RURAL[parameter_name + 'b']
-            pc_los = PARAMS_LOS_RURAL[parameter_name + 'c']
-            parameter_value_los_rural = pa_los*torch.log10(pb_los+fc) + pc_los
-
-            pa_nlos = PARAMS_NLOS_RURAL[parameter_name + 'a']
-            pb_nlos = PARAMS_NLOS_RURAL[parameter_name + 'b']
-            pc_nlos = PARAMS_NLOS_RURAL[parameter_name + 'c']
-            parameter_value_nlos_rural = pa_nlos*torch.log10(pb_nlos+fc) + pc_nlos
-
-        elif parameter_name == "cDS":
-            pa_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'a'], device=self.device)
-            pb_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'b'], device=self.device)
-            pc_los = torch.tensor(PARAMS_LOS_URBAN[parameter_name + 'c'], device=self.device)
-            parameter_value_los_urban = torch.maximum(pa_los, pb_los - pc_los*torch.log10(fc))
-
-            pa_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'a'], device=self.device)
-            pb_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'b'], device=self.device)
-            pc_nlos = torch.tensor(PARAMS_NLOS_URBAN[parameter_name + 'c'], device=self.device)
-            parameter_value_nlos_urban = torch.maximum(pa_nlos, pb_nlos - pc_nlos*torch.log10(fc))
-
-            pa_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'a'], device=self.device)
-            pb_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'b'], device=self.device)
-            pc_los = torch.tensor(PARAMS_LOS_RURAL[parameter_name + 'c'], device=self.device)
-            parameter_value_los_rural = torch.maximum(pa_los, pb_los - pc_los*torch.log10(fc))
-
-            pa_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'a'], device=self.device)
-            pb_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'b'], device=self.device)
-            pc_nlos = torch.tensor(PARAMS_NLOS_RURAL[parameter_name + 'c'], device=self.device)
-            parameter_value_nlos_rural = torch.maximum(pa_nlos, pb_nlos - pc_nlos*torch.log10(fc))
-
-        else:
-            parameter_value_los_urban = PARAMS_LOS_URBAN[parameter_name]
-            parameter_value_nlos_urban = PARAMS_NLOS_URBAN[parameter_name]
-            parameter_value_los_rural = PARAMS_LOS_RURAL[parameter_name]
-            parameter_value_nlos_rural = PARAMS_NLOS_RURAL[parameter_name]
-
-        parameter_value_los = torch.where(self.is_urban, parameter_value_los_urban, parameter_value_los_rural)
-        parameter_value_nlos = torch.where(self.is_urban, parameter_value_nlos_urban, parameter_value_nlos_rural)
-        parameter_tensor = torch.where(self.is_los, parameter_value_los, parameter_value_nlos)
-
-        return parameter_tensor.type(self._dtype_real).to(self.device)
+        return self.param_list[...,PARAMS_IDX[parameter_name]]
 
     def _compute_distance_2d_3d_and_angles(self):
         r"""
