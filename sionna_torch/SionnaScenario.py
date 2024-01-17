@@ -190,10 +190,10 @@ class SionnaScenario:
         fc = self.f_c/1e9
         fc_urban = 6.0 if fc/1e9 < 6 else fc
 
-        self.param_list_los_urban = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
-        self.param_list_nlos_urban = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
-        self.param_list_los_rural = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
-        self.param_list_nlos_rural = torch.empty((self.batch_size, self.num_bs, self.num_ut, len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_los_urban = torch.empty((len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_nlos_urban = torch.empty((len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_los_rural = torch.empty((len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
+        self.param_list_nlos_rural = torch.empty((len(PARAMS_IDX)), dtype=self._dtype_real, device=self.device)
 
         for k, list_idx in PARAMS_IDX.items():
             if k in ('muDS', 'sigmaDS', 'muASD', 'sigmaASD', 'muASA',
@@ -201,47 +201,47 @@ class SionnaScenario:
                 pa_los = PARAMS_LOS_URBAN[k + 'a']
                 pb_los = PARAMS_LOS_URBAN[k + 'b']
                 pc_los = PARAMS_LOS_URBAN[k + 'c']
-                self.param_list_los_urban[...,list_idx] = pa_los*np.log10(pb_los+fc_urban) + pc_los
+                self.param_list_los_urban[list_idx] = pa_los*np.log10(pb_los+fc_urban) + pc_los
 
                 pa_nlos = PARAMS_NLOS_URBAN[k + 'a']
                 pb_nlos = PARAMS_NLOS_URBAN[k + 'b']
                 pc_nlos = PARAMS_NLOS_URBAN[k + 'c']
-                self.param_list_nlos_urban[...,list_idx] = pa_nlos*np.log10(pb_nlos+fc_urban) + pc_nlos
+                self.param_list_nlos_urban[list_idx] = pa_nlos*np.log10(pb_nlos+fc_urban) + pc_nlos
 
                 pa_los = PARAMS_LOS_RURAL[k + 'a']
                 pb_los = PARAMS_LOS_RURAL[k + 'b']
                 pc_los = PARAMS_LOS_RURAL[k + 'c']
-                self.param_list_los_rural[...,list_idx] = pa_los*np.log10(pb_los+fc) + pc_los
+                self.param_list_los_rural[list_idx] = pa_los*np.log10(pb_los+fc) + pc_los
 
                 pa_nlos = PARAMS_NLOS_RURAL[k + 'a']
                 pb_nlos = PARAMS_NLOS_RURAL[k + 'b']
                 pc_nlos = PARAMS_NLOS_RURAL[k + 'c']
-                self.param_list_nlos_rural[...,list_idx] = pa_nlos*np.log10(pb_nlos+fc) + pc_nlos
+                self.param_list_nlos_rural[list_idx] = pa_nlos*np.log10(pb_nlos+fc) + pc_nlos
             elif k == "cDS":
                 pa_los = PARAMS_LOS_URBAN['cDSa']
                 pb_los = PARAMS_LOS_URBAN['cDSb']
                 pc_los = PARAMS_LOS_URBAN['cDSc']
-                self.param_list_los_urban[...,list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(fc_urban))
+                self.param_list_los_urban[list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(fc_urban))
 
                 pa_nlos = PARAMS_NLOS_URBAN['cDSa']
                 pb_nlos = PARAMS_NLOS_URBAN['cDSb']
                 pc_nlos = PARAMS_NLOS_URBAN['cDSc']
-                self.param_list_nlos_urban[...,list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(fc_urban))
+                self.param_list_nlos_urban[list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(fc_urban))
 
                 pa_los = PARAMS_LOS_RURAL['cDSa']
                 pb_los = PARAMS_LOS_RURAL['cDSb']
                 pc_los = PARAMS_LOS_RURAL['cDSc']
-                self.param_list_los_rural[...,list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(self.f_c/1e9))
+                self.param_list_los_rural[list_idx] = np.maximum(pa_los, pb_los - pc_los*np.log10(self.f_c/1e9))
 
                 pa_nlos = PARAMS_NLOS_RURAL['cDSa']
                 pb_nlos = PARAMS_NLOS_RURAL['cDSb']
                 pc_nlos = PARAMS_NLOS_RURAL['cDSc']
-                self.param_list_nlos_rural[...,list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(self.f_c/1e9))
+                self.param_list_nlos_rural[list_idx] = np.maximum(pa_nlos, pb_nlos - pc_nlos*np.log10(self.f_c/1e9))
             else:
-                self.param_list_los_urban[...,list_idx] = PARAMS_LOS_URBAN[k]
-                self.param_list_nlos_urban[...,list_idx] = PARAMS_NLOS_URBAN[k]
-                self.param_list_los_rural[...,list_idx] = PARAMS_LOS_RURAL[k]
-                self.param_list_nlos_rural[...,list_idx] = PARAMS_NLOS_RURAL[k]
+                self.param_list_los_urban[list_idx] = PARAMS_LOS_URBAN[k]
+                self.param_list_nlos_urban[list_idx] = PARAMS_NLOS_URBAN[k]
+                self.param_list_los_rural[list_idx] = PARAMS_LOS_RURAL[k]
+                self.param_list_nlos_rural[list_idx] = PARAMS_NLOS_RURAL[k]
     
     def init_param_list(self):
         parameter_value_los = torch.where(self.is_urban[...,None], self.param_list_los_urban, self.param_list_los_rural)
