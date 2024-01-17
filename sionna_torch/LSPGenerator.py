@@ -225,7 +225,8 @@ class LSPGenerator:
         # First initalize correlation matrix so main diagonal is identity
         cross_lsp_corr_mat = torch.ones(self._scenario.batch_size,self._scenario.num_bs,self._scenario.num_ut, 7, 7, dtype=self._scenario._dtype_real, device=self._scenario.device)
 
-        # Fill off-diagonal elements of the correlation matrices
+        # Fill off-diagonal elements of the correlation matrices using the method described at:
+        # https://stackoverflow.com/questions/68027886/elegant-way-to-get-a-symmetric-torch-tensor-over-diagonal
         cross_lsp_corr_vals = torch.stack([
             self._scenario.get_param('corrASDvsDS'),    # ASD vs DS
             self._scenario.get_param('corrASAvsDS'),    # ASA vs DS
