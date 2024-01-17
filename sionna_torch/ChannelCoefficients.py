@@ -601,50 +601,49 @@ class ChannelCoefficientsGenerator:
             Matrix accounting for element responses, random phases and xpr
         """
 
-        if scenario.direction == "uplink":
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
-        else:
-            rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
-            tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
+        # if scenario.direction == "uplink":
+        #     tx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
+        #     rx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
+        # else:
+        #     rx_orientations = torch.zeros(scenario.batch_size, scenario.num_ut, 3, device=self.device) # [batch size, number of UTs, 3]
+        #     tx_orientations = torch.zeros(scenario.batch_size, scenario.num_bs, 3, device=self.device) # [batch size, number of BSs, 3]
 
-        # Transform departure angles to the LCS
-        shape = tx_orientations.shape[:2] + (1,1,1) + tx_orientations.shape[-1:]
-        tx_orientations = torch.reshape(tx_orientations, shape)
+        # # Transform departure angles to the LCS
+        # shape = tx_orientations.shape[:2] + (1,1,1) + tx_orientations.shape[-1:]
+        # tx_orientations = torch.reshape(tx_orientations, shape)
 
-        # Transform arrival angles to the LCS
-        rx_orientations = rx_orientations[:,None,:,None,None,:]
+        # # Transform arrival angles to the LCS
+        # rx_orientations = rx_orientations[:,None,:,None,None,:]
 
-        # Compute transmitted and received field strength for all antennas
-        # in the LCS  and convert to GCS
-        f_tx_pol1_prime = torch.stack([torch.ones_like(zod, dtype=self._dtype_real, device=self.device), torch.zeros_like(aod, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
-        f_rx_pol1_prime = torch.stack([torch.ones_like(zoa, dtype=self._dtype_real, device=self.device), torch.zeros_like(aoa, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
+        # # Compute transmitted and received field strength for all antennas
+        # # in the LCS  and convert to GCS
+        # f_tx_pol1_prime = torch.stack([torch.ones_like(zod, dtype=self._dtype_real, device=self.device), torch.zeros_like(aod, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
+        # f_rx_pol1_prime = torch.stack([torch.ones_like(zoa, dtype=self._dtype_real, device=self.device), torch.zeros_like(aoa, dtype=self._dtype_real, device=self.device)], axis=-1) # Unity antenna
 
-        f_tx_pol1 = self._l2g_response(f_tx_pol1_prime, tx_orientations,
-            zod, aod)
+        # # These do nothing since unity antenna
+        # f_tx_pol1 = self._l2g_response(f_tx_pol1_prime, tx_orientations, zod, aod)
+        # f_rx_pol1 = self._l2g_response(f_rx_pol1_prime, rx_orientations, zoa, aoa)
 
-        f_rx_pol1 = self._l2g_response(f_rx_pol1_prime, rx_orientations,
-            zoa, aoa)
+        # # Fill the full channel matrix with field responses
+        # pol1_tx = torch.matmul(h_phase, f_tx_pol1 + 0.0j)
+        # # pol1_tx = h_phase[...,:1]
 
-        # Fill the full channel matrix with field responses
-        pol1_tx = torch.matmul(h_phase, f_tx_pol1 + 0.0j)
+        # num_ant_tx = 1
+        # # Each BS antenna gets the polarization 1 response
+        # f_tx_array = torch.tile(torch.unsqueeze(pol1_tx, 0), (num_ant_tx,) + (1,)*len(pol1_tx.shape))
 
-        num_ant_tx = 1
-        # Each BS antenna gets the polarization 1 response
-        f_tx_array = torch.tile(torch.unsqueeze(pol1_tx, 0), (num_ant_tx,) + (1,)*len(pol1_tx.shape))
+        # num_ant_rx = 1
+        # # Each UT antenna gets the polarization 1 response
+        # f_rx_array = torch.tile(torch.unsqueeze(f_rx_pol1, 0), (num_ant_rx,) + (1,)*len(f_rx_pol1.shape))
+        # f_rx_array = f_rx_array + 0j
 
-        num_ant_rx = 1
-        # Each UT antenna gets the polarization 1 response
-        f_rx_array = torch.tile(torch.unsqueeze(f_rx_pol1, 0), (num_ant_rx,) + (1,)*len(f_rx_pol1.shape))
-        f_rx_array = f_rx_array + 0j
+        # # Compute the scalar product between the field vectors through
+        # # reduce_sum and transpose to put antenna dimensions last
+        # h_field = torch.sum(torch.unsqueeze(f_rx_array, 1)*torch.unsqueeze(f_tx_array, 0), (-2,-1))
+        # h_field = torch.permute(h_field, torch.roll(torch.arange(len(h_field.shape)), -2, 0).tolist())
 
-        # Compute the scalar product between the field vectors through
-        # reduce_sum and transpose to put antenna dimensions last
-        h_field = torch.sum(torch.unsqueeze(f_rx_array, 1)*torch.unsqueeze(
-            f_tx_array, 0), (-2,-1))
-        h_field = torch.permute(h_field, torch.roll(torch.arange(len(h_field.shape)), -2, 0).tolist())
-
-        return h_field
+        # return h_field
+        return h_phase[...,:1,:1]
 
     def _step_11_nlos(self, phi, scenario, rays, t):
         # pylint: disable=line-too-long
@@ -801,7 +800,8 @@ class ChannelCoefficientsGenerator:
         zod = torch.unsqueeze(torch.unsqueeze(zod, dim=3), dim=4)
 
         # Field matrix
-        h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, self.los_h_phase)
+        # h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, self.los_h_phase)
+        h_field = -1.0
 
         # Array offset matrix
         # h_array = self._step_11_array_offsets(scenario, aoa, aod, zoa, zod)
@@ -818,7 +818,7 @@ class ChannelCoefficientsGenerator:
         h_delay = torch.exp(0.0 + 1j*2*torch.pi*d3d/lambda_0)
 
         # Combining all to compute channel coefficient
-        h_field = torch.unsqueeze(torch.squeeze(h_field, dim=4), dim=-1)
+        # h_field = torch.unsqueeze(torch.squeeze(h_field, dim=4), dim=-1)
         # h_array = torch.unsqueeze(torch.squeeze(h_array, dim=4), dim=-1)
         h_doppler = torch.unsqueeze(h_doppler, dim=4)
         h_delay = torch.unsqueeze(torch.unsqueeze(torch.unsqueeze(
