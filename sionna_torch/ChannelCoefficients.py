@@ -674,8 +674,8 @@ class ChannelCoefficientsGenerator:
         h_phase = self._step_11_phase_matrix(phi, rays)
         h_field = self._step_11_field_matrix(scenario, rays.aoa, rays.aod,
                                                     rays.zoa, rays.zod, h_phase)
-        h_array = self._step_11_array_offsets(scenario, rays.aoa, rays.aod,
-                                                            rays.zoa, rays.zod)
+        # h_array = self._step_11_array_offsets(scenario, rays.aoa, rays.aod, rays.zoa, rays.zod)
+        h_array = 1.0 # Always 1 since both unity gain antennas assumed
         h_doppler = self._step_11_doppler_matrix(scenario, rays.aoa, rays.zoa, t)
 
         h_full = torch.unsqueeze(h_field*h_array, -1) * torch.unsqueeze(
@@ -804,7 +804,8 @@ class ChannelCoefficientsGenerator:
         h_field = self._step_11_field_matrix(scenario, aoa, aod, zoa, zod, self.los_h_phase)
 
         # Array offset matrix
-        h_array = self._step_11_array_offsets(scenario, aoa, aod, zoa, zod)
+        # h_array = self._step_11_array_offsets(scenario, aoa, aod, zoa, zod)
+        h_array = 1.0 # Always 1.0 since both unity gain antennas assumed
 
         # Doppler matrix
         h_doppler = self._step_11_doppler_matrix(scenario, aoa, zoa, t)
@@ -818,7 +819,7 @@ class ChannelCoefficientsGenerator:
 
         # Combining all to compute channel coefficient
         h_field = torch.unsqueeze(torch.squeeze(h_field, dim=4), dim=-1)
-        h_array = torch.unsqueeze(torch.squeeze(h_array, dim=4), dim=-1)
+        # h_array = torch.unsqueeze(torch.squeeze(h_array, dim=4), dim=-1)
         h_doppler = torch.unsqueeze(h_doppler, dim=4)
         h_delay = torch.unsqueeze(torch.unsqueeze(torch.unsqueeze(
             torch.unsqueeze(h_delay, dim=3), dim=4), dim=5), dim=6)
