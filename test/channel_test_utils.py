@@ -73,16 +73,16 @@ def generate_random_loc(bs, n, x_range, y_range, z_range, share_loc=False,
     """
 
     if share_loc:
-        loc_x = torch.empty((1, n), dtype=dtype).uniform_(x_range[0], x_range[1]).numpy()
-        loc_y = torch.empty((1, n), dtype=dtype).uniform_(y_range[0], y_range[1]).numpy()
-        loc_z = torch.empty((1, n), dtype=dtype).uniform_(z_range[0], z_range[1]).numpy()
-        loc = np.stack([loc_x, loc_y, loc_z], axis=2)
-        loc = np.tile(loc, [bs, 1, 1])
+        loc_x = torch.empty((1, n), dtype=dtype).uniform_(x_range[0], x_range[1])
+        loc_y = torch.empty((1, n), dtype=dtype).uniform_(y_range[0], y_range[1])
+        loc_z = torch.empty((1, n), dtype=dtype).uniform_(z_range[0], z_range[1])
+        loc = torch.stack([loc_x, loc_y, loc_z], axis=2)
+        loc = torch.tile(loc, [bs, 1, 1])
     else:
-        loc_x = torch.empty((bs, n), dtype=dtype).uniform_(x_range[0], x_range[1]).numpy()
-        loc_y = torch.empty((bs, n), dtype=dtype).uniform_(y_range[0], y_range[1]).numpy()
-        loc_z = torch.empty((bs, n), dtype=dtype).uniform_(z_range[0], z_range[1]).numpy()
-        loc = np.stack([loc_x, loc_y, loc_z], axis=2)
+        loc_x = torch.empty((bs, n), dtype=dtype).uniform_(x_range[0], x_range[1])
+        loc_y = torch.empty((bs, n), dtype=dtype).uniform_(y_range[0], y_range[1])
+        loc_z = torch.empty((bs, n), dtype=dtype).uniform_(z_range[0], z_range[1])
+        loc = torch.stack([loc_x, loc_y, loc_z], axis=2)
 
     return loc
 

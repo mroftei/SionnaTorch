@@ -1,6 +1,6 @@
 import torch
 
-def matrix_sqrt(A, numIters=100):
+def matrix_sqrt_ns(A, numIters=100):
     """ Newton-Schulz iterations method to get matrix square root.
     Page 231, Eq 2.6b
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.6.8799&rep=rep1&type=pdf
@@ -43,6 +43,19 @@ def matrix_sqrt(A, numIters=100):
     sA = Y*torch.sqrt(normA)
     
     return sA
+
+def matrix_sqrt_eig(A):
+    """Compute the square root of a Symmetric or Hermitian positive definite matrix or batch of matrices.
+    Eigen-decomposition is used to determine the matrix square root ($A^(1/2)=Q\Lambda^{1/2}Q^T$)
+    
+    Mathematical source: https://rich-d-wilkinson.github.io/MATH3030/3.2-spectraleigen-decomposition.html#matrixroots
+    Code source: https://github.com/pytorch/pytorch/issues/25481#issuecomment-1032789228
+    """
+    L, Q = torch.linalg.eigh(A)
+    zero = torch.zeros((), device=L.device, dtype=L.dtype)
+    threshold = L.max(-1).values * L.size(-1) * torch.finfo(L.dtype).eps
+    L = L.where(L > threshold.unsqueeze(-1), zero)  # zero out small components
+    return (Q * L.sqrt().unsqueeze(-2)) @ Q.mH
 
 class LSP:
     r"""
@@ -209,75 +222,46 @@ class LSPGenerator:
 
         # The following 7 LSPs are correlated:
         # DS, ASA, ASD, SF, K, ZSA, ZSD
-        # We create the correlation matrix initialized to the identity matrix
-        cross_lsp_corr_mat = torch.eye(7, 7, dtype=self._scenario._dtype_real, device=self._scenario.device)
-        cross_lsp_corr_mat = torch.tile(cross_lsp_corr_mat[None,None,None], (self._scenario.batch_size,self._scenario.num_bs,self._scenario.num_ut,1,1))
+        # First initalize correlation matrix so main diagonal is identity
+        cross_lsp_corr_mat = torch.ones(self._scenario.batch_size,self._scenario.num_bs,self._scenario.num_ut, 7, 7, dtype=self._scenario._dtype_real, device=self._scenario.device)
 
-        # Internal function that adds to the correlation matrix ``mat``
-        # ``cross_lsp_corr_mat`` the parameter ``parameter_name`` at location
-        # (m,n)
-        def _add_param(mat, parameter_name, m, n):
-            # Mask to put the parameters in the right spot of the 7x7
-            # correlation matrix
-            indices = torch.tensor([[m,n],[n,m]], device=self._scenario.device)
-            mask = torch.zeros((7,7), dtype=self._scenario._dtype_real, device=self._scenario.device)
-            mask[indices[:, 0], indices[:, 1]] = torch.tensor([1.0, 1.0], dtype=self._scenario._dtype_real, device=self._scenario.device)
-            mask = torch.reshape(mask, [1,1,1,7,7])
-            # Get the parameter value according to the link scenario
-            update = self._scenario.get_param(parameter_name).type(self._scenario._dtype_real)
-            update = torch.unsqueeze(torch.unsqueeze(update, axis=3), axis=4)
-            # Add update
-            mat = mat + update*mask
-            return mat
+        # Fill off-diagonal elements of the correlation matrices using the method described at:
+        # https://stackoverflow.com/questions/68027886/elegant-way-to-get-a-symmetric-torch-tensor-over-diagonal
+        cross_lsp_corr_vals = torch.stack([
+            self._scenario.get_param('corrASDvsDS'),    # ASD vs DS
+            self._scenario.get_param('corrASAvsDS'),    # ASA vs DS
+            self._scenario.get_param('corrDSvsSF'),     # DS vs SF
+            self._scenario.get_param('corrDSvsK'),      # DS vs K
+            self._scenario.get_param('corrZSAvsDS'),    # DS vs ZSA
+            self._scenario.get_param('corrZSDvsDS'),    # DS vs ZSD
 
-        # Fill off-diagonal elements of the correlation matrices
-        # ASD vs DS
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASDvsDS', 0, 1)
-        # ASA vs DS
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASAvsDS', 0, 2)
-        # ASA vs SF
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASAvsSF', 3, 2)
-        # ASD vs SF
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASDvsSF', 3, 1)
-        # DS vs SF
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrDSvsSF', 3, 0)
-        # ASD vs ASA
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASDvsASA', 1,2)
-        # ASD vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASDvsK', 1, 4)
-        # ASA vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrASAvsK', 2, 4)
-        # DS vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrDSvsK', 0, 4)
-        # SF vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrSFvsK', 3, 4)
-        # ZSD vs SF
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsSF', 3, 6)
-        # ZSA vs SF
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSAvsSF', 3, 5)
-        # ZSD vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsK', 6, 4)
-        # ZSA vs K
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSAvsK', 5, 4)
-        # ZSD vs DS
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsDS', 6, 0)
-        # ZSA vs DS
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSAvsDS', 5, 0)
-        # ZSD vs ASD
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsASD', 6,1)
-        # ZSA vs ASD
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSAvsASD', 5,1)
-        # ZSD vs ASA
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsASA', 6,2)
-        # ZSA vs ASA
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSAvsASA', 5,2)
-        # ZSD vs ZSA
-        cross_lsp_corr_mat = _add_param(cross_lsp_corr_mat, 'corrZSDvsZSA', 5,6)
+            self._scenario.get_param('corrASDvsASA'),   # ASD vs ASA
+            self._scenario.get_param('corrASDvsSF'),    # ASD vs SF
+            self._scenario.get_param('corrASDvsK'),     # ASD vs K
+            self._scenario.get_param('corrZSAvsASD'),   # ASD vs ZSA
+            self._scenario.get_param('corrZSDvsASD'),   # ASD vs ZSD
+            
+            self._scenario.get_param('corrASAvsSF'),    # ASA vs SF
+            self._scenario.get_param('corrASAvsK'),     # ASA vs K
+            self._scenario.get_param('corrZSAvsASA'),   # ASA vs ZSA
+            self._scenario.get_param('corrZSDvsASA'),   # ASA vs ZSD
+            
+            self._scenario.get_param('corrSFvsK'),      # SF vs K
+            self._scenario.get_param('corrZSAvsSF'),    # SF vs ZSA
+            self._scenario.get_param('corrZSDvsSF'),    # SF vs ZSD
+            
+            self._scenario.get_param('corrZSAvsK'),     # K vs ZSA
+            self._scenario.get_param('corrZSDvsK'),     # K vs ZSD
+            
+            self._scenario.get_param('corrZSDvsZSA'),   # ZSA vs ZSD
+        ], -1)
 
-        # Compute and store the square root of the cross-LSP correlation
-        # matrix
-        self._cross_lsp_correlation_matrix_sqrt = matrix_sqrt(
-                cross_lsp_corr_mat)
+        i, j = torch.triu_indices(7, 7, 1) # indices of upper triangle ignoring main diagonal
+        cross_lsp_corr_mat[...,i, j] = cross_lsp_corr_vals
+        cross_lsp_corr_mat.mT[...,i, j] = cross_lsp_corr_vals
+
+        # Compute and store the square root of the cross-LSP correlation matrix
+        self._cross_lsp_correlation_matrix_sqrt = matrix_sqrt_eig(cross_lsp_corr_mat)
 
     def _compute_lsp_spatial_correlation_sqrt(self):
         """
@@ -361,6 +345,6 @@ class LSPGenerator:
             ut_dist_2d*distance_scaling_matrices)*filtering_matrices)
 
         # Compute and store the square root of the spatial correlation matrix
-        self._spatial_lsp_correlation_matrix_sqrt = matrix_sqrt(
+        self._spatial_lsp_correlation_matrix_sqrt = matrix_sqrt_eig(
                 spatial_lsp_correlation)
         

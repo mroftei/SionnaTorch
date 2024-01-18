@@ -5,7 +5,8 @@
 
 import unittest
 import numpy as np
-from channel_test_utils import *
+import torch
+from channel_test_utils import generate_random_loc
 from sionna_torch.LSPGenerator import LSPGenerator
 from sionna_torch.RaysGenerator import RaysGenerator
 from sionna_torch.ChannelCoefficients import ChannelCoefficientsGenerator
@@ -73,7 +74,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         # rx_orientations = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # tx_orientations = torch.empty((batch_size, nb_bs, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # ut_velocities = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 5.0)
-        scen_map = np.zeros([TestChannelCoefficientsGenerator.MAP_RES, TestChannelCoefficientsGenerator.MAP_RES], dtype=int)
+        scen_map = torch.zeros([TestChannelCoefficientsGenerator.MAP_RES, TestChannelCoefficientsGenerator.MAP_RES], dtype=int)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestChannelCoefficientsGenerator.MAP_RES),
                                      (100,TestChannelCoefficientsGenerator.MAP_RES), (h_ut, h_ut), dtype=torch.float64)
@@ -81,7 +82,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
                                             (0,100), (h_bs, h_bs),
                                             dtype=torch.float64)
 
-        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
+        scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128, device=dev)
         scenario.update_topology(ut_loc, bs_loc, scen_map)
         TestChannelCoefficientsGenerator.scenario = scenario
 

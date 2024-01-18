@@ -4,7 +4,8 @@
 #
 import unittest
 import numpy as np
-from channel_test_utils import *
+import torch
+from channel_test_utils import generate_random_loc, channel_test_on_models, log10ASA, log10DS, log10ASD,log10K_dB, log10SF_dB, log10ZSA, log10ZSD, cross_corr, corr_dist_asd, corr_dist_asa, corr_dist_ds, corr_dist_k, corr_dist_sf, corr_dist_zsa, corr_dist_zsd, pathloss, pathloss_std, los_probability, zod_offset
 from scipy.stats import kstest, norm
 from sionna_torch.SionnaScenario import SionnaScenario
 
@@ -120,17 +121,17 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["rma"] = {}
         TestLSP.zod_offset["rma"] = {}
         TestLSP.pathlosses["rma"] = {}
-        scen_map = np.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
+        scen_map = torch.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)
         scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=True)
         TestLSP.lsp_samples["rma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["rma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)
         scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=False)
         TestLSP.lsp_samples["rma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["rma"]["nlos"] = scenario.zod_offset
@@ -144,17 +145,17 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["uma"] = {}
         TestLSP.zod_offset["uma"] = {}
         TestLSP.pathlosses["uma"] = {}
-        scen_map = np.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
+        scen_map = torch.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
-        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)
         scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=True)
         TestLSP.lsp_samples["uma"]["los"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["los"] = scenario.zod_offset
         TestLSP.pathlosses["uma"]["los"] = scenario.basic_pathloss.numpy().reshape((batch_size,-1))
 
         # NLoS
-        scenario = SionnaScenario(f_c=fc, seed=seed, dtype=torch.complex128)
+        scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)
         scenario.update_topology(ut_loc, bs_loc, scen_map, los_requested=False)
         TestLSP.lsp_samples["uma"]["nlos"] = scenario._lsp_sampler()
         TestLSP.zod_offset["uma"]["nlos"] = scenario.zod_offset
