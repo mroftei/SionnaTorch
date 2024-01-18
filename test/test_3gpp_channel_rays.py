@@ -102,7 +102,7 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['rma'] = {}
         TestRays.los_zod['rma'] = {}
         TestRays.mu_log_zsd['rma'] = {}
-        scen_map = np.zeros([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
+        scen_map = torch.zeros([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
         # scenario = RMaScenario(fc, "downlink", rng=rng, dtype=torch.complex128)
         # ray_sampler = RaysGenerator(scenario, rng=rng)
 
@@ -164,7 +164,7 @@ class TestRays(unittest.TestCase):
         TestRays.los_zoa['uma'] = {}
         TestRays.los_zod['uma'] = {}
         TestRays.mu_log_zsd['uma'] = {}
-        scen_map = np.ones([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
+        scen_map = torch.ones([TestRays.MAP_RES, TestRays.MAP_RES], dtype=int)
         # scenario = UMaScenario(  fc, "downlink", rng=rng, dtype=torch.complex128)
         # ray_sampler = RaysGenerator(scenario, rng=rng)
 

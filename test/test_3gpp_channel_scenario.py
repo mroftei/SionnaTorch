@@ -54,7 +54,7 @@ class TestScenario(unittest.TestCase):
         h_bs = TestScenario.H_BS
 
         # ut_velocities = np.zeros([batch_size, nb_ut])
-        scen_map = np.ones([TestScenario.MAP_RES, TestScenario.MAP_RES], dtype=int)
+        scen_map = torch.ones([TestScenario.MAP_RES, TestScenario.MAP_RES], dtype=int)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestScenario.MAP_RES),
                                      (100,TestScenario.MAP_RES), (h_ut, h_ut))

@@ -74,7 +74,7 @@ class TestChannelCoefficientsGenerator(unittest.TestCase):
         # rx_orientations = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # tx_orientations = torch.empty((batch_size, nb_bs, 3), dtype=torch.float64).uniform_(0.0, 2*np.pi)
         # ut_velocities = torch.empty((batch_size, nb_ut, 3), dtype=torch.float64).uniform_(0.0, 5.0)
-        scen_map = np.zeros([TestChannelCoefficientsGenerator.MAP_RES, TestChannelCoefficientsGenerator.MAP_RES], dtype=int)
+        scen_map = torch.zeros([TestChannelCoefficientsGenerator.MAP_RES, TestChannelCoefficientsGenerator.MAP_RES], dtype=int)
 
         ut_loc = generate_random_loc(batch_size, nb_ut, (100,TestChannelCoefficientsGenerator.MAP_RES),
                                      (100,TestChannelCoefficientsGenerator.MAP_RES), (h_ut, h_ut), dtype=torch.float64)

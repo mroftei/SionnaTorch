@@ -121,7 +121,7 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["rma"] = {}
         TestLSP.zod_offset["rma"] = {}
         TestLSP.pathlosses["rma"] = {}
-        scen_map = np.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
+        scen_map = torch.zeros([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
         scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)
@@ -145,7 +145,7 @@ class TestLSP(unittest.TestCase):
         TestLSP.lsp_samples["uma"] = {}
         TestLSP.zod_offset["uma"] = {}
         TestLSP.pathlosses["uma"] = {}
-        scen_map = np.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
+        scen_map = torch.ones([TestLSP.MAP_RES, TestLSP.MAP_RES], dtype=int)
 
         # LoS
         scenario = SionnaScenario(n_bs=nb_bs, n_ut=nb_ut, batch_size=batch_size, f_c=fc, seed=seed, dtype=torch.complex128)

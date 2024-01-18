@@ -62,25 +62,25 @@ class SionnaScenario:
         self.load_params() # Load all parameters in to device tensors
         
     def update_topology(self,
-                        ut_xy: np.ndarray, #[batch size,num_ut, 3] in map pixels
-                        bs_xy: np.ndarray, #[batch size,num_bs, 3] in map pixels
-                        map: np.ndarray, #[batch size,num_bs] terrain class at each pixel
+                        ut_xy: torch.Tensor, #[batch size,num_ut, 3] in map pixels
+                        bs_xy: torch.Tensor, #[batch size,num_bs, 3] in map pixels
+                        map: torch.Tensor, #[batch size,num_bs] terrain class at each pixel
                         map_resolution: float = 1.0, # map pixels to meters conversion factor
-                        ut_velocities: np.ndarray = None, #[batch size,num_ut, 3]
-                        los_requested: np.ndarray = None,
+                        ut_velocities: torch.Tensor = None, #[batch size,num_ut, 3]
+                        los_requested: torch.Tensor = None,
                         direction: str = "uplink" #uplink/downlink
     ) -> None:
         # set_topology
-        self.ut_xy = torch.from_numpy(ut_xy).to(self.device)
+        self.ut_xy = ut_xy.to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
         self.ut_xy[:,:,:2] = self.ut_xy[:,:,:2] * map_resolution
-        self.bs_xy = torch.from_numpy(bs_xy).to(self.device)
+        self.bs_xy = bs_xy.to(self.device)
         self.h_bs = self.bs_xy[:,:,2]
         self.bs_xy[:,:,:2] = self.bs_xy[:,:,:2] * map_resolution
         assert self.num_ut == self.ut_xy.shape[1]
         assert self.num_bs == self.bs_xy.shape[1]
         assert self.batch_size == self.bs_xy.shape[0]
-        self.map = torch.from_numpy(map).to(self.device)
+        self.map = map.to(self.device)
         self.map_resolution = map_resolution
         self.los_requested = los_requested
         self.direction = direction #uplink/downlink
@@ -88,7 +88,7 @@ class SionnaScenario:
         if ut_velocities is None:
             self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
-            self.ut_velocities = torch.from_numpy(ut_velocities).to(self.device) * map_resolution
+            self.ut_velocities = ut_velocities.to(self.device) * map_resolution
 
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
