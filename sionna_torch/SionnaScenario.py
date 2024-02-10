@@ -71,10 +71,10 @@ class SionnaScenario:
                         direction: str = "uplink" #uplink/downlink
     ) -> None:
         # set_topology
-        self.ut_xy = ut_xy.to(self.device)
+        self.ut_xy = ut_xy.clone().to(self.device)
         self.h_ut = self.ut_xy[:,:,2]
         self.ut_xy[:,:,:2] = self.ut_xy[:,:,:2] * map_resolution
-        self.bs_xy = bs_xy.to(self.device)
+        self.bs_xy = bs_xy.clone().to(self.device)
         self.h_bs = self.bs_xy[:,:,2]
         self.bs_xy[:,:,:2] = self.bs_xy[:,:,:2] * map_resolution
         assert self.num_ut == self.ut_xy.shape[1]
@@ -339,7 +339,7 @@ class SionnaScenario:
         trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
         trans_filt = trans_filt.reshape_as(zi).round().int()
         terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
-        terrain_transitions[...,0] = True
+        # terrain_transitions[...,0] = True
         terrain_transitions[...,-1] = True
 
         terrain_transitions_mask = torch.any(terrain_transitions.flatten(0,-2), 0)
@@ -535,11 +535,13 @@ class SionnaScenario:
         # Terrain change contributions
         urban_pl_lin = 10**(urban_pl_b/10)
         rural_pl_lin = 10**(rural_pl_b/10)
+        rural_pl_lin = torch.nn.functional.pad(rural_pl_lin, (1,0))
         rural_pl_diff = torch.diff(rural_pl_lin)
-        rural_pl_diff[...,0] += rural_pl_lin[...,0]
+        # rural_pl_diff[...,0] += rural_pl_lin[...,0]
+        urban_pl_lin = torch.nn.functional.pad(urban_pl_lin, (1,0))
         urban_pl_diff = torch.diff(urban_pl_lin)
-        urban_pl_diff[...,0] += urban_pl_lin[...,0]
-        pl_b = torch.where(self.terrain_is_urban[...,1:], urban_pl_diff, rural_pl_diff)
+        # urban_pl_diff[...,0] += urban_pl_lin[...,0]
+        pl_b = torch.where(self.terrain_is_urban, urban_pl_diff, rural_pl_diff)
         pl_b = torch.sum(pl_b, -1)
         pl_b = 10*torch.log10(pl_b)
 
