@@ -24,6 +24,7 @@ class SionnaScenario:
                  f_c: float = .92e9,
                  bw: float = 30e3,
                  noise_power_dB = None,
+                 enable_sf = True,
                  seed: int = 42,
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
@@ -39,6 +40,7 @@ class SionnaScenario:
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
         self.n_samples = n_time_samples
+        self.enable_sf = enable_sf
 
         # data type
         assert dtype.is_complex, "'dtype' must be complex type"
@@ -151,7 +153,8 @@ class SionnaScenario:
                                       lsp.k_factor, rays, self, c_ds)
 
         # Step 12 (path loss and shadow fading)
-        gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(lsp.sf)
+        sf = lsp.sf if self.enable_sf else torch.ones_like(lsp.sf)
+        gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(sf)
         gain = gain[(...,)+(None,)*(len(h.shape)-len(gain.shape))]
         h *= gain + 0.0j
 
