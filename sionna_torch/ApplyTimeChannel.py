@@ -142,7 +142,6 @@ class ApplyTimeChannel():
         y = torch.sum(h_time*x, axis=-1)
         y = torch.sum(torch.sum(y, axis=4), axis=3)
 
-
         # Add AWGN if requested
         if self._add_awgn:
             # Create tensors of real-valued Gaussian noise for each complex dim.
@@ -157,8 +156,8 @@ class ApplyTimeChannel():
             noise *= np.sqrt(no)
 
             # Add noise to input
+            snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1)) - 10*torch.log10(torch.mean(torch.abs(noise) ** 2, -1))
             y = y + noise
-            snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1)) - 10*np.log10(no)
         else:
             snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
 
