@@ -24,6 +24,8 @@ class SionnaScenario:
                  f_c: float = .92e9,
                  bw: float = 30e3,
                  noise_power_dB = None,
+                 enable_sf = True,
+                 enable_fading = True,
                  seed: int = 42,
                  dtype=torch.complex64,
                  device: Optional[torch.device] = None,
@@ -39,6 +41,8 @@ class SionnaScenario:
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
         self.n_samples = n_time_samples
+        self.enable_sf = enable_sf
+        self.enable_fading = enable_fading
 
         # data type
         assert dtype.is_complex, "'dtype' must be complex type"
@@ -113,45 +117,50 @@ class SionnaScenario:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
         assert self.ut_xy is not None, "Call update_topology before applying channel"
 
-        # Sample LSPs 
-        lsp = self._lsp_sampler()
-        # Sample rays
-        rays = self._ray_sampler(lsp)
+        if self.enable_fading:
+            # Sample LSPs 
+            lsp = self._lsp_sampler()
+            # Sample rays
+            rays = self._ray_sampler(lsp)
 
-        # Sample channel responses
+            # Sample channel responses
 
-        # The channel coefficient needs the cluster delay spread parameter in ns
-        c_ds = self.get_param("cDS")*1e-9
+            # The channel coefficient needs the cluster delay spread parameter in ns
+            c_ds = self.get_param("cDS")*1e-9
 
-        # According to the link direction, we need to specify which from BS
-        # and UT is uplink, and which is downlink.
-        # Default is downlink, so we need to do some tranpose to switch tx and
-        # rx and to switch angle of arrivals and departure if direction is set
-        # to uplink. Nothing needs to be done if direction is downlink
-        if self.direction == "uplink":
-            aoa = rays.aoa
-            zoa = rays.zoa
-            aod = rays.aod
-            zod = rays.zod
-            rays.aod = torch.permute(aoa, [0, 2, 1, 3, 4])
-            rays.zod = torch.permute(zoa, [0, 2, 1, 3, 4])
-            rays.aoa = torch.permute(aod, [0, 2, 1, 3, 4])
-            rays.zoa = torch.permute(zod, [0, 2, 1, 3, 4])
-            rays.powers = torch.permute(rays.powers, [0, 2, 1, 3])
-            rays.delays = torch.permute(rays.delays, [0, 2, 1, 3])
-            rays.xpr = torch.permute(rays.xpr, [0, 2, 1, 3, 4])
-            c_ds = torch.permute(c_ds, [0, 2, 1])
-            # Concerning LSPs, only these two are used.
-            # We do not transpose the others to reduce complexity
-            lsp.k_factor = torch.permute(lsp.k_factor, [0, 2, 1])
-            lsp.sf = torch.permute(lsp.sf, [0, 2, 1])
+            # According to the link direction, we need to specify which from BS
+            # and UT is uplink, and which is downlink.
+            # Default is downlink, so we need to do some tranpose to switch tx and
+            # rx and to switch angle of arrivals and departure if direction is set
+            # to uplink. Nothing needs to be done if direction is downlink
+            if self.direction == "uplink":
+                aoa = rays.aoa
+                zoa = rays.zoa
+                aod = rays.aod
+                zod = rays.zod
+                rays.aod = torch.permute(aoa, [0, 2, 1, 3, 4])
+                rays.zod = torch.permute(zoa, [0, 2, 1, 3, 4])
+                rays.aoa = torch.permute(aod, [0, 2, 1, 3, 4])
+                rays.zoa = torch.permute(zod, [0, 2, 1, 3, 4])
+                rays.powers = torch.permute(rays.powers, [0, 2, 1, 3])
+                rays.delays = torch.permute(rays.delays, [0, 2, 1, 3])
+                rays.xpr = torch.permute(rays.xpr, [0, 2, 1, 3, 4])
+                c_ds = torch.permute(c_ds, [0, 2, 1])
+                # Concerning LSPs, only these two are used.
+                # We do not transpose the others to reduce complexity
+                lsp.k_factor = torch.permute(lsp.k_factor, [0, 2, 1])
+                lsp.sf = torch.permute(lsp.sf, [0, 2, 1])
 
-        num_time_samples_lag = self.n_samples+(self.l_max-self.l_min)
-        h, tau = self._cir_sampler(num_time_samples_lag, self.f_c,
-                                      lsp.k_factor, rays, self, c_ds)
+            num_time_samples_lag = self.n_samples+(self.l_max-self.l_min)
+            h, tau = self._cir_sampler(num_time_samples_lag, self.f_c,
+                                        lsp.k_factor, rays, self, c_ds)
+        else:
+            h = torch.ones((1,1,1,1,1,1,num_time_samples_lag), dtype=self._dtype, device=self.device)
+            tau = torch.zeros((1,1,1,1), dtype=self._dtype_real, device=self.device)
 
         # Step 12 (path loss and shadow fading)
-        gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(lsp.sf)
+        sf = lsp.sf if self.enable_sf else torch.ones_like(lsp.sf)
+        gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(sf)
         gain = gain[(...,)+(None,)*(len(h.shape)-len(gain.shape))]
         h *= gain + 0.0j
 
