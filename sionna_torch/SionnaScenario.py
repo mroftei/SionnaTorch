@@ -54,9 +54,12 @@ class SionnaScenario:
         l_tot = self.l_max-self.l_min+1
 
         if noise_power_dB is not None:
+            self.noise_power_db = noise_power_dB
             self.noise_power_lin = 10**(noise_power_dB/10)
         else:
-            self.noise_power_lin = 10**((-173.8 + 10 * np.log10(bw))/10)
+            self.noise_power_db = -173.8 + 10 * np.log10(bw)
+            self.noise_power_lin = 10**((self.noise_power_db)/10)
+
 
         self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
         self._lsp_sampler = LSPGenerator(self, rng)
@@ -116,53 +119,62 @@ class SionnaScenario:
     def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
         assert self.ut_xy is not None, "Call update_topology before applying channel"
+        
+        # Sample LSPs 
+        lsp = self._lsp_sampler()
+        # Sample rays
+        rays = self._ray_sampler(lsp)
 
-        if self.enable_fading:
-            # Sample LSPs 
-            lsp = self._lsp_sampler()
-            # Sample rays
-            rays = self._ray_sampler(lsp)
+        # Sample channel responses
 
-            # Sample channel responses
+        # The channel coefficient needs the cluster delay spread parameter in ns
+        c_ds = self.get_param("cDS")*1e-9
 
-            # The channel coefficient needs the cluster delay spread parameter in ns
-            c_ds = self.get_param("cDS")*1e-9
+        # According to the link direction, we need to specify which from BS
+        # and UT is uplink, and which is downlink.
+        # Default is downlink, so we need to do some tranpose to switch tx and
+        # rx and to switch angle of arrivals and departure if direction is set
+        # to uplink. Nothing needs to be done if direction is downlink
+        if self.direction == "uplink":
+            aoa = rays.aoa
+            zoa = rays.zoa
+            aod = rays.aod
+            zod = rays.zod
+            rays.aod = torch.permute(aoa, [0, 2, 1, 3, 4])
+            rays.zod = torch.permute(zoa, [0, 2, 1, 3, 4])
+            rays.aoa = torch.permute(aod, [0, 2, 1, 3, 4])
+            rays.zoa = torch.permute(zod, [0, 2, 1, 3, 4])
+            rays.powers = torch.permute(rays.powers, [0, 2, 1, 3])
+            rays.delays = torch.permute(rays.delays, [0, 2, 1, 3])
+            rays.xpr = torch.permute(rays.xpr, [0, 2, 1, 3, 4])
+            c_ds = torch.permute(c_ds, [0, 2, 1])
+            # Concerning LSPs, only these two are used.
+            # We do not transpose the others to reduce complexity
+            lsp.k_factor = torch.permute(lsp.k_factor, [0, 2, 1])
+            lsp.sf = torch.permute(lsp.sf, [0, 2, 1])
 
-            # According to the link direction, we need to specify which from BS
-            # and UT is uplink, and which is downlink.
-            # Default is downlink, so we need to do some tranpose to switch tx and
-            # rx and to switch angle of arrivals and departure if direction is set
-            # to uplink. Nothing needs to be done if direction is downlink
-            if self.direction == "uplink":
-                aoa = rays.aoa
-                zoa = rays.zoa
-                aod = rays.aod
-                zod = rays.zod
-                rays.aod = torch.permute(aoa, [0, 2, 1, 3, 4])
-                rays.zod = torch.permute(zoa, [0, 2, 1, 3, 4])
-                rays.aoa = torch.permute(aod, [0, 2, 1, 3, 4])
-                rays.zoa = torch.permute(zod, [0, 2, 1, 3, 4])
-                rays.powers = torch.permute(rays.powers, [0, 2, 1, 3])
-                rays.delays = torch.permute(rays.delays, [0, 2, 1, 3])
-                rays.xpr = torch.permute(rays.xpr, [0, 2, 1, 3, 4])
-                c_ds = torch.permute(c_ds, [0, 2, 1])
-                # Concerning LSPs, only these two are used.
-                # We do not transpose the others to reduce complexity
-                lsp.k_factor = torch.permute(lsp.k_factor, [0, 2, 1])
-                lsp.sf = torch.permute(lsp.sf, [0, 2, 1])
-
-            num_time_samples_lag = self.n_samples+(self.l_max-self.l_min)
-            h, tau = self._cir_sampler(num_time_samples_lag, self.f_c,
-                                        lsp.k_factor, rays, self, c_ds)
-        else:
-            h = torch.ones((1,1,1,1,1,1,num_time_samples_lag), dtype=self._dtype, device=self.device)
-            tau = torch.zeros((1,1,1,1), dtype=self._dtype_real, device=self.device)
+        num_time_samples_lag = self.n_samples+(self.l_max-self.l_min)
+        h, tau = self._cir_sampler(num_time_samples_lag, self.f_c,
+                                    lsp.k_factor, rays, self, c_ds)
+        if not self.enable_fading:
+            path_gain = torch.abs(torch.sum(h, 3, keepdim=True))
+            h1 = torch.ones((self.batch_size,self.num_ut,self.num_bs,1,1,1,num_time_samples_lag), dtype=self._dtype, device=self.device) * path_gain
+            h2 = torch.zeros((self.batch_size,self.num_ut,self.num_bs,self.l_max-self.l_min,1,1,num_time_samples_lag), dtype=self._dtype, device=self.device)
+            h = torch.cat((h1,h2), dim=3)
+            tau = torch.zeros((self.batch_size,1,1,1), dtype=self._dtype_real, device=self.device)
 
         # Step 12 (path loss and shadow fading)
-        sf = lsp.sf if self.enable_sf else torch.ones_like(lsp.sf)
+        sf = lsp.sf if (self.enable_sf and self.enable_fading) else torch.ones(1, device=self.basic_pathloss.device)
         gain = torch.pow(10.0, -(self.basic_pathloss)/20.)*torch.sqrt(sf)
         gain = gain[(...,)+(None,)*(len(h.shape)-len(gain.shape))]
         h *= gain + 0.0j
+
+        # Limit SNR to max SNR
+        # est_snr = torch.max(torch.sum(torch.abs(h),3) ** 2, -1)[0][...,0,0]/self.noise_power_lin
+        # snr_cap_idx = est_snr > self.max_power_lin
+        # snr_cap_gain = torch.sqrt(self.max_power_lin/est_snr)
+        # snr_cap_gain /= torch.empty_like(snr_cap_gain).uniform_(1,100, generator=self.rng)
+        # h[snr_cap_idx] = h[snr_cap_idx] * (snr_cap_gain[snr_cap_idx] + 0.0j)[...,None,None,None,None]
 
         ## cir_to_time_channel 
         # Reshaping to match the expected output
