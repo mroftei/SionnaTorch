@@ -132,14 +132,13 @@ class ApplyTimeChannel():
 
     def __call__(self, x, h_time, no=1e-14):
         # Preparing the channel input for broadcasting and matrix multiplication
-        x = torch.nn.functional.pad(x, (0,1))
-        x = x[:, None, None]
+        x1 = torch.nn.functional.pad(x, (0,1))
+        x1 = x1[:, None, None,...,None]
 
-        # x = np.take(x, self._g, axis=-1)
-        x = torch.take_along_dim(x[...,None], self._g[None,None,None,None,None], -2)
+        x1 = torch.take_along_dim(x1, self._g[None,None,None,None,None], -2)
 
         # Apply the channel response
-        y = torch.sum(h_time*x, axis=-1)
+        y = torch.sum(h_time*x1, axis=-1)
         y = torch.sum(torch.sum(y, axis=4), axis=3)
 
         # Add AWGN if requested
