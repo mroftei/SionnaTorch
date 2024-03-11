@@ -118,6 +118,25 @@ class SionnaScenario:
         
     def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
+        
+        h_T, _ = self.generate_channels()
+
+        # if normalize:
+        #     # Normalization is performed such that for each batch example and
+        #     # link the energy per block is one.
+        #     # The total energy of a channel response is the sum of the squared
+        #     # norm over the channel taps.
+        #     # Average over block size, RX antennas, and TX antennas
+        #     c = np.mean(np.sum(np.square(np.abs(hm)),
+        #                                     axis=6, keepdims=True),
+        #                     axis=(2,4,5), keepdims=True)
+        #     c = np.sqrt(c) + 0.0j
+        #     hm = math.divide_no_nan(hm, c)
+        y_torch, snr = self.apply_channels(x, h_T)
+
+        return y_torch, snr
+
+    def generate_channels(self):
         assert self.ut_xy is not None, "Call update_topology before applying channel"
         
         # Sample LSPs 
@@ -192,20 +211,15 @@ class SionnaScenario:
         # For every tap, sum the sinc-weighted coefficients
         h_T = torch.sum(h*g, axis=-3)
 
-        # if normalize:
-        #     # Normalization is performed such that for each batch example and
-        #     # link the energy per block is one.
-        #     # The total energy of a channel response is the sum of the squared
-        #     # norm over the channel taps.
-        #     # Average over block size, RX antennas, and TX antennas
-        #     c = np.mean(np.sum(np.square(np.abs(hm)),
-        #                                     axis=6, keepdims=True),
-        #                     axis=(2,4,5), keepdims=True)
-        #     c = np.sqrt(c) + 0.0j
-        #     hm = math.divide_no_nan(hm, c)
-        y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin)
+        h_snr = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)) - 10*np.log10(self.noise_power_lin)
 
-        return y_torch, snr
+        return h_T, h_snr
+
+    def apply_channels(self, x, h_T):
+        return self._apply_channel(x, h_T, self.noise_power_lin)
+
+    def get_pathloss_snr(self):
+        return self.basic_pathloss*-1 - self.noise_power_db
     
     def load_params(self):
         fc = self.f_c/1e9

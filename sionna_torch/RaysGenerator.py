@@ -346,7 +346,7 @@ class RaysGenerator:
 
         batch_size = scenario.batch_size
         num_bs = scenario.num_bs
-        num_ut = scenario.num_ut
+        # num_ut = scenario.num_ut
 
         num_clusters_max = scenario.num_clusters_max
 
@@ -439,7 +439,7 @@ class RaysGenerator:
 
         batch_size = scenario.batch_size
         num_bs = scenario.num_bs
-        num_ut = scenario.num_ut
+        # num_ut = scenario.num_ut
 
         # Tensors giving UTs states
         los = scenario.is_los
