@@ -36,7 +36,8 @@ class SionnaScenario:
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
         self.bw = bw
-        self.rng = rng = torch.Generator(device=device).manual_seed(seed)
+        self.seed = seed
+        self.rng = torch.Generator(device=device).manual_seed(seed)
         self.average_street_width = 20.0
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
@@ -61,10 +62,10 @@ class SionnaScenario:
             self.noise_power_lin = 10**((self.noise_power_db)/10)
 
 
-        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
-        self._lsp_sampler = LSPGenerator(self, rng)
-        self._ray_sampler = RaysGenerator(self, rng)
-        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
+        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = self.rng, dtype=dtype, device=device)
+        self._lsp_sampler = LSPGenerator(self, self.rng)
+        self._ray_sampler = RaysGenerator(self, self.rng)
+        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=self.rng, add_awgn=True, device=device)
         
         self.load_params() # Load all parameters in to device tensors
         
@@ -75,7 +76,8 @@ class SionnaScenario:
                         map_resolution: float = 1.0, # map pixels to meters conversion factor
                         ut_velocities: torch.Tensor = None, #[batch size,num_ut, 3]
                         los_requested: torch.Tensor = None,
-                        direction: str = "uplink" #uplink/downlink
+                        direction: str = "uplink", #uplink/downlink
+                        reset_rng: bool = False,
     ) -> None:
         # set_topology
         self.ut_xy = ut_xy.clone().to(self.device)
@@ -96,6 +98,9 @@ class SionnaScenario:
             self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
             self.ut_velocities = ut_velocities.to(self.device) * map_resolution
+
+        if reset_rng:
+            self.rng = torch.Generator(device=self.device).manual_seed(self.seed)
 
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
