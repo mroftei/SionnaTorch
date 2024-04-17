@@ -137,9 +137,9 @@ class SionnaScenario:
         #                     axis=(2,4,5), keepdims=True)
         #     c = np.sqrt(c) + 0.0j
         #     hm = math.divide_no_nan(hm, c)
-        y_torch, snr = self.apply_channels(x, h_T)
+        y_torch, rx_pow_db, snr_db = self.apply_channels(x, h_T)
 
-        return y_torch, snr
+        return y_torch, rx_pow_db, snr_db
 
     def generate_channels(self):
         assert self.ut_xy is not None, "Call update_topology before applying channel"
@@ -216,9 +216,10 @@ class SionnaScenario:
         # For every tap, sum the sinc-weighted coefficients
         h_T = torch.sum(h*g, axis=-3)
 
-        h_snr = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)) - 10*np.log10(self.noise_power_lin)
+        # h_snr = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)) - 10*np.log10(self.noise_power_lin)
+        h_gain_db = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1))
 
-        return h_T, h_snr
+        return h_T, h_gain_db
 
     def apply_channels(self, x, h_T):
         return self._apply_channel(x, h_T, self.noise_power_lin)
@@ -358,7 +359,7 @@ class SionnaScenario:
         self.matrix_ut_distance_2d = matrix_ut_distance_2d
 
         ## Terrain distance calculations
-        max_dist = max(self.map.shape) * self.map_resolution
+        max_dist = max(self.map.shape)
         steps = torch.arange(max_dist, dtype=torch.float32, device=self.device) / (max_dist - 1)
 
         steps = steps[None,None,None,:,None]
