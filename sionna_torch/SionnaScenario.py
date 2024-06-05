@@ -217,9 +217,9 @@ class SionnaScenario:
         h_T = torch.sum(h*g, axis=-3)
 
         # h_snr = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)) - 10*np.log10(self.noise_power_lin)
-        h_gain_db = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1))
+        h_gain = torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)
 
-        return h_T, h_gain_db
+        return h_T, h_gain
 
     def apply_channels(self, x, h_T):
         return self._apply_channel(x, h_T, self.noise_power_lin)
