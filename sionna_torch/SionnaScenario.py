@@ -354,38 +354,38 @@ class SionnaScenario:
 
         delta_loc_xy = ut_loc_xy_expanded_1 - ut_loc_xy_expanded_2
 
-        matrix_ut_distance_2d = torch.sqrt(torch.sum(torch.square(delta_loc_xy),
+        self.matrix_ut_distance_2d = torch.sqrt(torch.sum(torch.square(delta_loc_xy),
                                                        axis=3))
-        self.matrix_ut_distance_2d = matrix_ut_distance_2d
 
         ## Terrain distance calculations
-        max_dist = max(self.map.shape)
-        steps = torch.arange(max_dist, dtype=torch.float32, device=self.device) / (max_dist - 1)
+        steps = torch.linspace(0.0, 1.0, self.map.shape[0], dtype=self._dtype_real, device=self.device)
 
         steps = steps[None,None,None,:,None]
 
         delta_loc_xy = self.ut_xy[:,None,:,None,:2] - self.bs_xy[:,:,None,None,:2]
         dist_vector = steps*delta_loc_xy
-        xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
-        xy_vectors = (xy_vectors/self.map_resolution).int()
-        dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
 
-        zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
+        # xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
+        # xy_vectors = (xy_vectors/self.map_resolution).long()
+        # zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
 
         # Filter out small changes in terrain
-        n = 7 # filter size
-        trans_filt = zi.flatten(0,-2)[:,None].float()
-        trans_filt = torch.nn.functional.pad(trans_filt, (0,n-1), 'replicate')
-        kernel = torch.ones((1,1,n), dtype=torch.float, device=self.device)/n
-        trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
-        trans_filt = trans_filt.reshape_as(zi).round().int()
-        terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
-        # terrain_transitions[...,0] = True
+        # n = 7 # filter size
+        # trans_filt = zi.flatten(0,-2)[:,None].float()
+        # trans_filt = torch.nn.functional.pad(trans_filt, (0,n-1), 'replicate')
+        # kernel = torch.ones((1,1,n), dtype=torch.float, device=self.device)/n
+        # trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
+        # trans_filt = trans_filt.reshape_as(zi).round().int()
+        
+        terrain_transitions = torch.zeros((1, 1, 1, self.map.shape[0]-1), dtype=bool, device=self.device)
+        # terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
         terrain_transitions[...,-1] = True
 
         terrain_transitions_mask = torch.any(terrain_transitions.flatten(0,-2), 0)
 
-        self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
+        dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
+        self.terrain_is_urban = torch.zeros_like(dist_vector, dtype=bool, device=self.device)
+        # self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
         self.is_urban = self.terrain_is_urban[...,-1]
         self.distances = dist_vector[...,terrain_transitions_mask]
 
