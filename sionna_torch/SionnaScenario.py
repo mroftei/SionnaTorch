@@ -36,7 +36,8 @@ class SionnaScenario:
         self.f_c = f_c
         self.lambda_0 = scipy.constants.c/f_c # wavelength
         self.bw = bw
-        self.rng = rng = torch.Generator(device=device).manual_seed(seed)
+        self.seed = seed
+        self.rng = torch.Generator(device=device).manual_seed(seed)
         self.average_street_width = 20.0
         self.average_building_height = 5.0
         self.rays_per_cluster = 20
@@ -61,10 +62,10 @@ class SionnaScenario:
             self.noise_power_lin = 10**((self.noise_power_db)/10)
 
 
-        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = rng, dtype=dtype, device=device)
-        self._lsp_sampler = LSPGenerator(self, rng)
-        self._ray_sampler = RaysGenerator(self, rng)
-        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=rng, add_awgn=True, device=device)
+        self._cir_sampler = ChannelCoefficientsGenerator(f_c, subclustering=True, rng = self.rng, dtype=dtype, device=device)
+        self._lsp_sampler = LSPGenerator(self, self.rng)
+        self._ray_sampler = RaysGenerator(self, self.rng)
+        self._apply_channel = ApplyTimeChannel(n_time_samples, l_tot=l_tot, rng=self.rng, add_awgn=True, device=device)
         
         self.load_params() # Load all parameters in to device tensors
         
@@ -75,7 +76,8 @@ class SionnaScenario:
                         map_resolution: float = 1.0, # map pixels to meters conversion factor
                         ut_velocities: torch.Tensor = None, #[batch size,num_ut, 3]
                         los_requested: torch.Tensor = None,
-                        direction: str = "uplink" #uplink/downlink
+                        direction: str = "uplink", #uplink/downlink
+                        reset_rng: bool = False,
     ) -> None:
         # set_topology
         self.ut_xy = ut_xy.clone().to(self.device)
@@ -96,6 +98,9 @@ class SionnaScenario:
             self.ut_velocities = torch.zeros_like(self.ut_xy, device=self.device)
         else:
             self.ut_velocities = ut_velocities.to(self.device) * map_resolution
+
+        if reset_rng:
+            self.rng = torch.Generator(device=self.device).manual_seed(self.seed)
 
         # Update topology-related quantities
         self._compute_distance_2d_3d_and_angles()
@@ -118,6 +123,25 @@ class SionnaScenario:
         
     def __call__(self, x: torch.Tensor, bw: torch.Tensor=None) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
+        
+        h_T, _ = self.generate_channels()
+
+        # if normalize:
+        #     # Normalization is performed such that for each batch example and
+        #     # link the energy per block is one.
+        #     # The total energy of a channel response is the sum of the squared
+        #     # norm over the channel taps.
+        #     # Average over block size, RX antennas, and TX antennas
+        #     c = np.mean(np.sum(np.square(np.abs(hm)),
+        #                                     axis=6, keepdims=True),
+        #                     axis=(2,4,5), keepdims=True)
+        #     c = np.sqrt(c) + 0.0j
+        #     hm = math.divide_no_nan(hm, c)
+        y_torch, rx_pow_db, snr_db = self.apply_channels(x, h_T, bw)
+
+        return y_torch, rx_pow_db, snr_db
+
+    def generate_channels(self):
         assert self.ut_xy is not None, "Call update_topology before applying channel"
         
         # Sample LSPs 
@@ -192,20 +216,16 @@ class SionnaScenario:
         # For every tap, sum the sinc-weighted coefficients
         h_T = torch.sum(h*g, axis=-3)
 
-        # if normalize:
-        #     # Normalization is performed such that for each batch example and
-        #     # link the energy per block is one.
-        #     # The total energy of a channel response is the sum of the squared
-        #     # norm over the channel taps.
-        #     # Average over block size, RX antennas, and TX antennas
-        #     c = np.mean(np.sum(np.square(np.abs(hm)),
-        #                                     axis=6, keepdims=True),
-        #                     axis=(2,4,5), keepdims=True)
-        #     c = np.sqrt(c) + 0.0j
-        #     hm = math.divide_no_nan(hm, c)
-        y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin, bw)
+        # h_snr = 10*torch.log10(torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)) - 10*np.log10(self.noise_power_lin)
+        h_gain = torch.mean(torch.sum(torch.abs(h_T), -1) ** 2, -1)
 
-        return y_torch, snr
+        return h_T, h_gain
+
+    def apply_channels(self, x, h_T, bw):
+        return self._apply_channel(x, h_T, self.noise_power_lin, bw)
+
+    def get_pathloss_snr(self):
+        return self.basic_pathloss*-1 - self.noise_power_db
     
     def load_params(self):
         fc = self.f_c/1e9
@@ -334,38 +354,38 @@ class SionnaScenario:
 
         delta_loc_xy = ut_loc_xy_expanded_1 - ut_loc_xy_expanded_2
 
-        matrix_ut_distance_2d = torch.sqrt(torch.sum(torch.square(delta_loc_xy),
+        self.matrix_ut_distance_2d = torch.sqrt(torch.sum(torch.square(delta_loc_xy),
                                                        axis=3))
-        self.matrix_ut_distance_2d = matrix_ut_distance_2d
 
         ## Terrain distance calculations
-        max_dist = max(self.map.shape) * self.map_resolution
-        steps = torch.arange(max_dist, dtype=torch.float32, device=self.device) / (max_dist - 1)
+        steps = torch.linspace(0.0, 1.0, self.map.shape[0], dtype=self._dtype_real, device=self.device)
 
         steps = steps[None,None,None,:,None]
 
         delta_loc_xy = self.ut_xy[:,None,:,None,:2] - self.bs_xy[:,:,None,None,:2]
         dist_vector = steps*delta_loc_xy
-        xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
-        xy_vectors = (xy_vectors/self.map_resolution).int()
-        dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
 
-        zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
+        # xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
+        # xy_vectors = (xy_vectors/self.map_resolution).long()
+        # zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
 
         # Filter out small changes in terrain
-        n = 7 # filter size
-        trans_filt = zi.flatten(0,-2)[:,None].float()
-        trans_filt = torch.nn.functional.pad(trans_filt, (0,n-1), 'replicate')
-        kernel = torch.ones((1,1,n), dtype=torch.float, device=self.device)/n
-        trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
-        trans_filt = trans_filt.reshape_as(zi).round().int()
-        terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
-        # terrain_transitions[...,0] = True
+        # n = 7 # filter size
+        # trans_filt = zi.flatten(0,-2)[:,None].float()
+        # trans_filt = torch.nn.functional.pad(trans_filt, (0,n-1), 'replicate')
+        # kernel = torch.ones((1,1,n), dtype=torch.float, device=self.device)/n
+        # trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
+        # trans_filt = trans_filt.reshape_as(zi).round().int()
+        
+        terrain_transitions = torch.zeros((1, 1, 1, self.map.shape[0]-1), dtype=bool, device=self.device)
+        # terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
         terrain_transitions[...,-1] = True
 
         terrain_transitions_mask = torch.any(terrain_transitions.flatten(0,-2), 0)
 
-        self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
+        dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
+        self.terrain_is_urban = torch.zeros_like(dist_vector, dtype=bool, device=self.device)
+        # self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
         self.is_urban = self.terrain_is_urban[...,-1]
         self.distances = dist_vector[...,terrain_transitions_mask]
 

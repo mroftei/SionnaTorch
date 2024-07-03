@@ -155,15 +155,15 @@ class ApplyTimeChannel():
             noise *= np.sqrt(no)
 
             # Add noise to input
-            p_0 = torch.mean(torch.abs(y) ** 2, -1)
-            n_0 = torch.mean(torch.abs(noise) ** 2, -1)
-            snr = 10*torch.log10(p_0 / n_0)
-
+            rx_pow_db = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
+            noise_pow_db = 10*torch.log10(torch.mean(torch.abs(noise) ** 2, -1))
+            snr_db = rx_pow_db - noise_pow_db
             y = y + noise
         else:
-            snr = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
+            rx_pow_db = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
+            snr_db = rx_pow_db
 
         if bw is not None: # Inband SNR
-            snr -= 10*torch.log10(bw)
+            snr_db -= 10*torch.log10(bw)
 
-        return y, snr
+        return y, rx_pow_db, snr_db
