@@ -130,7 +130,7 @@ class ApplyTimeChannel():
         first_row = np.concatenate([[0], np.full([l_tot-1], num_time_samples)])
         self._g = torch.from_numpy(scipy.linalg.toeplitz(first_colum, first_row)).to(device)
 
-    def __call__(self, x, h_time, no=1e-14):
+    def __call__(self, x, h_time, no=1e-14, bw=None):
         # Preparing the channel input for broadcasting and matrix multiplication
         x1 = torch.nn.functional.pad(x, (0,1))
         x1 = x1[:, None, None,...,None]
@@ -156,10 +156,14 @@ class ApplyTimeChannel():
 
             # Add noise to input
             rx_pow_db = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
-            snr_db = rx_pow_db - 10*torch.log10(torch.mean(torch.abs(noise) ** 2, -1))
+            noise_pow_db = 10*torch.log10(torch.mean(torch.abs(noise) ** 2, -1))
+            snr_db = rx_pow_db - noise_pow_db
             y = y + noise
         else:
             rx_pow_db = 10*torch.log10(torch.mean(torch.abs(y) ** 2, -1))
             snr_db = rx_pow_db
+
+        if bw is not None: # Inband SNR
+            snr_db -= 10*torch.log10(bw)
 
         return y, rx_pow_db, snr_db

@@ -121,7 +121,7 @@ class SionnaScenario:
         self._ray_sampler.topology_updated_callback()
         
         
-    def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, x: torch.Tensor, bw: torch.Tensor=None) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
         
         h_T, _ = self.generate_channels()
@@ -137,7 +137,7 @@ class SionnaScenario:
         #                     axis=(2,4,5), keepdims=True)
         #     c = np.sqrt(c) + 0.0j
         #     hm = math.divide_no_nan(hm, c)
-        y_torch, rx_pow_db, snr_db = self.apply_channels(x, h_T)
+        y_torch, rx_pow_db, snr_db = self.apply_channels(x, h_T, bw)
 
         return y_torch, rx_pow_db, snr_db
 
@@ -221,8 +221,8 @@ class SionnaScenario:
 
         return h_T, h_gain
 
-    def apply_channels(self, x, h_T):
-        return self._apply_channel(x, h_T, self.noise_power_lin)
+    def apply_channels(self, x, h_T, bw):
+        return self._apply_channel(x, h_T, self.noise_power_lin, bw)
 
     def get_pathloss_snr(self):
         return self.basic_pathloss*-1 - self.noise_power_db
