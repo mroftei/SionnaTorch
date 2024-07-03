@@ -164,6 +164,6 @@ class ApplyTimeChannel():
             snr_db = rx_pow_db
 
         if bw is not None: # Inband SNR
-            snr_db -= 10*torch.log10(bw)
+            snr_db -= 10*torch.log10(bw[:,None,None])
 
         return y, rx_pow_db, snr_db
