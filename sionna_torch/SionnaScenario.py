@@ -116,7 +116,7 @@ class SionnaScenario:
         self._ray_sampler.topology_updated_callback()
         
         
-    def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, x: torch.Tensor, bw: torch.Tensor=None) -> Tuple[torch.Tensor, torch.Tensor]:
         assert x.shape[-1] == self.n_samples, "Input frame size mismatch"
         assert self.ut_xy is not None, "Call update_topology before applying channel"
         
@@ -203,7 +203,7 @@ class SionnaScenario:
         #                     axis=(2,4,5), keepdims=True)
         #     c = np.sqrt(c) + 0.0j
         #     hm = math.divide_no_nan(hm, c)
-        y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin)
+        y_torch, snr = self._apply_channel(x, h_T, self.noise_power_lin, bw)
 
         return y_torch, snr
     
