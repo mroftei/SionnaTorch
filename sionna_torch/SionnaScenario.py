@@ -357,7 +357,7 @@ class SionnaScenario:
         self.matrix_ut_distance_2d = torch.sqrt(torch.sum(torch.square(delta_loc_xy),
                                                        axis=3))
 
-        ## Terrain distance calculations
+        # Terrain distance calculations
         steps = torch.linspace(0.0, 1.0, self.map.shape[0], dtype=self._dtype_real, device=self.device)
 
         steps = steps[None,None,None,:,None]
@@ -365,9 +365,9 @@ class SionnaScenario:
         delta_loc_xy = self.ut_xy[:,None,:,None,:2] - self.bs_xy[:,:,None,None,:2]
         dist_vector = steps*delta_loc_xy
 
-        # xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
-        # xy_vectors = (xy_vectors/self.map_resolution).long()
-        # zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
+        xy_vectors = dist_vector + self.bs_xy[:,:,None,None,:2]
+        xy_vectors = (xy_vectors/self.map_resolution).long()
+        zi = self.map[xy_vectors[...,0], xy_vectors[...,1]]
 
         # Filter out small changes in terrain
         # n = 7 # filter size
@@ -377,17 +377,21 @@ class SionnaScenario:
         # trans_filt = torch.nn.functional.conv1d(trans_filt, kernel)
         # trans_filt = trans_filt.reshape_as(zi).round().int()
         
-        terrain_transitions = torch.zeros((1, 1, 1, self.map.shape[0]-1), dtype=bool, device=self.device)
-        # terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
+        terrain_transitions = (zi[...,1:] - zi[...,:-1]) != 0
         terrain_transitions[...,-1] = True
 
         terrain_transitions_mask = torch.any(terrain_transitions.flatten(0,-2), 0)
 
         dist_vector = torch.sqrt(torch.sum(torch.square(dist_vector), axis=-1))[...,1:] # Convert to 2d distance
-        self.terrain_is_urban = torch.zeros_like(dist_vector, dtype=bool, device=self.device)
-        # self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
+        self.terrain_is_urban = zi[...,1:][...,terrain_transitions_mask].bool()
         self.is_urban = self.terrain_is_urban[...,-1]
         self.distances = dist_vector[...,terrain_transitions_mask]
+
+        # delta_loc_xy = self.ut_xy[:,None,:,:2] - self.bs_xy[:,:,None,:2]
+        # bs_loc = (bs_loc/self.map_resolution).long()
+        # self.terrain_is_urban = self.map[bs_loc[...,0], bs_loc[...,1]].bool()[...,None]
+        # self.is_urban = self.terrain_is_urban[...,-1]
+        # self.distances = torch.sqrt(torch.sum(torch.square(delta_loc_xy), axis=-1, keepdim=True)) # Convert to 2d distance
 
 
     def _compute_los(self):
